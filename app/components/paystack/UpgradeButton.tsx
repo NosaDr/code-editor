@@ -1,5 +1,4 @@
 "use client";
-import PaystackPop from '@paystack/inline-js';
 import { useAuth } from '@/app/context/AuthContext';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
@@ -13,38 +12,45 @@ export default function UpgradeButton() {
     return <button disabled className="bg-gray-200 text-gray-500 px-6 py-3 rounded-lg">Premium Active</button>;
   }
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!user || !user.email) return;
     setLoading(true);
 
-    const paystack = new PaystackPop();
-    
-    paystack.newTransaction({
-      key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string, // Add this to .env.local
-      email: user.email,
-      amount: 2000 * 100, // ₦2,000 in kobo
-      currency: 'NGN',
-      metadata: {
-        custom_fields: [
-          { display_name: "User ID", variable_name: "user_id", value: user.uid }
-        ]
-      },
-      onSuccess: async (transaction: any) => {
-        try {
-          const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, {
-            subscriptionStatus: 'premium',
-            subscriptionExpiry: Date.now() + (30 * 24 * 60 * 60 * 1000) // +30 Days
-          });
-          window.location.reload(); // Refresh to reflect changes
-        } catch (error) {
-          console.error("Error updating profile", error);
+    try {
+      const PaystackPop = (await import('@paystack/inline-js')).default;
+      const paystack = new PaystackPop();
+      
+      paystack.newTransaction({
+        key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
+        email: user.email,
+        amount: 2000 * 100, // ₦2,000 in kobo
+        currency: 'NGN',
+        metadata: {
+          custom_fields: [
+            { display_name: "User ID", variable_name: "user_id", value: user.uid }
+          ]
+        },
+        onSuccess: async (transaction: any) => {
+          try {
+            const userRef = doc(db, "users", user.uid);
+            await updateDoc(userRef, {
+              subscriptionStatus: 'premium',
+              subscriptionExpiry: Date.now() + (30 * 24 * 60 * 60 * 1000) // +30 Days
+            });
+            window.location.reload(); 
+          } catch (error) {
+            console.error("Error updating profile", error);
+          }
+        },
+        onCancel: () => {
+          setLoading(false);
         }
-      },
-      onCancel: () => {
-        setLoading(false);
-      }
-    });
+      });
+    } catch (error) {
+      console.error("Payment error:", error);
+      alert("Error initializing payment. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (

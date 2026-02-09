@@ -6,7 +6,6 @@ import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, CheckCircle, Zap, Shield, Star, Lock } from "lucide-react";
-import PaystackPop from "@paystack/inline-js";
 
 export default function RegisterOnboarding() {
   // State for Wizard Steps: 'register' | 'plan'
@@ -56,41 +55,47 @@ export default function RegisterOnboarding() {
   };
 
   // STEP 2: HANDLE PAYMENT (PREMIUM)
- // STEP 2: HANDLE PAYMENT (PREMIUM)
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!createdUser) return;
     setLoading(true);
 
-    const paystack = new PaystackPop();
-    paystack.newTransaction({
-      key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
-      email: createdUser.email,
-      amount: 2000 * 100, // ₦2,000
-      currency: 'NGN',
-      metadata: { custom_fields: [{ display_name: "User ID", variable_name: "user_id", value: createdUser.uid }] },
-      onSuccess: async (transaction: any) => {
-        // Upgrade to Premium
-        try {
-          await updateDoc(doc(db, "users", createdUser.uid), {
-            subscriptionStatus: 'premium',
-            subscriptionExpiry: Date.now() + (365 * 24 * 60 * 60 * 1000), // 1 Year
-            paymentRef: transaction.reference
-          });
-          
-          // ⚠️ FIX: Force a hard reload so the AuthContext fetches the new Premium status
-          window.location.href = "/dashboard"; 
-          
-        } catch (error) {
-          console.error("Error updating profile", error);
-          alert("Payment successful but error updating profile. Please contact support.");
+    try {
+      const PaystackPop = (await import("@paystack/inline-js")).default;
+      const paystack = new PaystackPop();
+      paystack.newTransaction({
+        key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
+        email: createdUser.email,
+        amount: 2000 * 100, // ₦2,000
+        currency: 'NGN',
+        metadata: { custom_fields: [{ display_name: "User ID", variable_name: "user_id", value: createdUser.uid }] },
+        onSuccess: async (transaction: any) => {
+          // Upgrade to Premium
+          try {
+            await updateDoc(doc(db, "users", createdUser.uid), {
+              subscriptionStatus: 'premium',
+              subscriptionExpiry: Date.now() + (365 * 24 * 60 * 60 * 1000), // 1 Year
+              paymentRef: transaction.reference
+            });
+            
+            // ⚠️ FIX: Force a hard reload so the AuthContext fetches the new Premium status
+            window.location.href = "/dashboard"; 
+            
+          } catch (error) {
+            console.error("Error updating profile", error);
+            alert("Payment successful but error updating profile. Please contact support.");
+            setLoading(false);
+          }
+        },
+        onCancel: () => {
           setLoading(false);
+          alert("Transaction Cancelled.");
         }
-      },
-      onCancel: () => {
-        setLoading(false);
-        alert("Transaction Cancelled.");
-      }
-    });
+      });
+    } catch (error) {
+      console.error("Payment error:", error);
+      alert("Error initializing payment. Please try again.");
+      setLoading(false);
+    }
   };
 
   // STEP 2B: HANDLE FREE PLAN

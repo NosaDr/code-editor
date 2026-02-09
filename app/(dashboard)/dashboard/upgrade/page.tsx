@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useAuth } from "@/app/context/AuthContext";
 import { db } from "@/app/lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
-import PaystackPop from "@paystack/inline-js";
 import { CheckCircle, Zap, Shield, Star, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -16,7 +15,7 @@ export default function UpgradePage() {
   const PRICE = 2000; // Naira
   const PAYSTACK_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY;
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!user) return;
     setLoading(true);
 
@@ -26,35 +25,42 @@ export default function UpgradePage() {
       return;
     }
 
-    const paystack = new PaystackPop();
-    paystack.newTransaction({
-      key: PAYSTACK_KEY,
-      email: user.email!,
-      amount: PRICE * 100, // Convert to kobo
-      currency: 'NGN',
-      ref: "" + Math.floor((Math.random() * 1000000000) + 1), // Unique ref
-      onSuccess: async (transaction: any) => {
-        // Payment Success! Update Database
-        try {
-          const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, {
-            subscriptionStatus: 'premium',
-            subscriptionDate: new Date().toISOString(),
-            paymentRef: transaction.reference
-          });
-          
-          alert("Payment Successful! Welcome to Premium.");
-          window.location.href = "/dashboard"; // Reload to refresh permissions
-        } catch (error) {
-          console.error("Error updating profile:", error);
-          alert("Payment received but error updating profile. Contact support.");
+    try {
+      const PaystackPop = (await import("@paystack/inline-js")).default;
+      const paystack = new PaystackPop();
+      paystack.newTransaction({
+        key: PAYSTACK_KEY,
+        email: user.email!,
+        amount: PRICE * 100, // Convert to kobo
+        currency: 'NGN',
+        reference: "" + Math.floor((Math.random() * 1000000000) + 1), // Unique ref
+        onSuccess: async (transaction: any) => {
+          // Payment Success! Update Database
+          try {
+            const userRef = doc(db, "users", user.uid);
+            await updateDoc(userRef, {
+              subscriptionStatus: 'premium',
+              subscriptionDate: new Date().toISOString(),
+              paymentRef: transaction.reference
+            });
+            
+            alert("Payment Successful! Welcome to Premium.");
+            window.location.href = "/dashboard"; // Reload to refresh permissions
+          } catch (error) {
+            console.error("Error updating profile:", error);
+            alert("Payment received but error updating profile. Contact support.");
+          }
+        },
+        onCancel: () => {
+          setLoading(false);
+          alert("Transaction Cancelled");
         }
-      },
-      onCancel: () => {
-        setLoading(false);
-        alert("Transaction Cancelled");
-      }
-    });
+      });
+    } catch (error) {
+      console.error("Payment error:", error);
+      alert("Error initializing payment. Please try again.");
+      setLoading(false);
+    }
   };
 
   if (userData?.subscriptionStatus === 'premium') {

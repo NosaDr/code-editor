@@ -30,7 +30,7 @@ export default function DashboardOverview() {
            const data = doc.data();
            // Convert Firestore Timestamp to readable date
            const date = data.date ? new Date(data.date.seconds * 1000).toLocaleDateString() : 'Just now';
-           return {id: doc.id, ...data, date };
+           return {id: doc.id, date, percentage: data.percentage, subject: data.subject, score: data.score, totalQuestions: data.totalQuestions, ...data };
         });
         
         setRecentActivity(results);

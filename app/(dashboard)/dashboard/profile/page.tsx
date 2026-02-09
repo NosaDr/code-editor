@@ -114,7 +114,7 @@ export default function ProfilePage() {
               </button>
 
               <p className="text-xs text-slate-400 mt-6 text-center">
-                Member since {formatDate(userData?.createdAt)}
+                Member since {user?.metadata?.creationTime ? formatDate(user.metadata.creationTime) : "N/A"}
               </p>
            </div>
         </div>

@@ -8,7 +8,7 @@ import { ArrowRight, CheckCircle, Lock, Zap, Star, MapPin, Mail, Phone, Twitter,
 // 🌟 Animation Variants for "Top End" Feel
 const fadeInUp = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] } }
+  visible: { opacity: 1, y: 0, transition: { duration: 0.8 } }
 };
 
 const staggerContainer = {
@@ -41,7 +41,7 @@ const Typewriter = () => {
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -20, opacity: 0 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
+          transition={{ duration: 0.5 }}
           className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-500"
         >
           {words[index]}
@@ -69,7 +69,7 @@ export default function LandingPage() {
       <motion.nav 
         initial={{ y: -100 }}
         animate={{ y: 0 }}
-        transition={{ duration: 0.8, ease: "circOut" }}
+        transition={{ duration: 0.8 }}
         className="fixed w-full z-50 bg-white/80 backdrop-blur-xl border-b border-emerald-100/50"
       >
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
