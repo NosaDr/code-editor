@@ -35,12 +35,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             uid: currentUser.uid,
             email: currentUser.email || null,
             displayName: currentUser.displayName || null,
+            examCategory: rawData.examCategory || 'senior',
             subscriptionStatus: rawData.subscriptionStatus || 'free',
             subscriptionExpiry: firebaseTimestampToMillis(rawData.subscriptionExpiry) || undefined,
+            credits: rawData.credits || 0,
+            totalCreditsEarned: rawData.totalCreditsEarned || 0,
           };
           setUserData(processedData);
         } else {
-  
+          
+          const defaultData: UserData = {
+            uid: currentUser.uid,
+            email: currentUser.email || null,
+            displayName: currentUser.displayName || null,
+            examCategory: 'senior',
+            subscriptionStatus: 'free',
+            credits: 0, 
+            totalCreditsEarned: 0, 
+          };
+          setUserData(defaultData);
         }
       } else {
         setUserData(null);

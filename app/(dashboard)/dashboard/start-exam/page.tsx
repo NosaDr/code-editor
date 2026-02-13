@@ -1,0 +1,310 @@
+"use client";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/app/context/AuthContext";
+import { db } from "@/app/lib/firebase";
+import { doc, updateDoc, increment, addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { Loader2, Zap, ShieldCheck, AlertCircle, ArrowLeft, Coins, GraduationCap, BookOpen, Sparkles, School, Award, Briefcase, Globe } from "lucide-react";
+import Link from "next/link";
+
+export default function StartExamPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { user, userData } = useAuth();
+  
+  const examType = searchParams.get("type");
+  const cost = parseInt(searchParams.get("cost") || "0");
+  
+  const [isDeducting, setIsDeducting] = useState(false);
+
+  // Mapping exam IDs to readable names and details
+  const examDetails: Record<string, { 
+    name: string; 
+    description: string; 
+    icon: any;
+    gradient: string;
+    subjects?: string;
+    duration: string;
+  }> = {
+    'jamb': {
+      name: 'JAMB Mock Simulation',
+      description: 'Full 4-subject JAMB UTME examination under timed conditions',
+      icon: GraduationCap,
+      gradient: 'from-slate-900 to-slate-800',
+      subjects: '4 Subjects',
+      duration: '2 Hours'
+    },
+    'waec': {
+      name: 'WAEC Practice Exam',
+      description: 'Senior Secondary Certificate Examination practice with detailed solutions',
+      icon: BookOpen,
+      gradient: 'from-blue-900 to-blue-800',
+      subjects: 'Multiple Subjects',
+      duration: '3 Hours'
+    },
+    'neco': {
+      name: 'NECO Practice Exam',
+      description: 'National Examination Council practice with past questions',
+      icon: Sparkles,
+      gradient: 'from-violet-900 to-violet-800',
+      subjects: 'Multiple Subjects',
+      duration: '2.5 Hours'
+    },
+    'bece': {
+      name: 'BECE / Junior WAEC',
+      description: 'Basic Education Certificate Examination for JSS3 students',
+      icon: Award,
+      gradient: 'from-indigo-900 to-indigo-800',
+      subjects: 'Core Subjects',
+      duration: '2 Hours'
+    },
+    'common-entrance': {
+      name: 'Common Entrance Exam',
+      description: 'Secondary school entrance examination preparation',
+      icon: School,
+      gradient: 'from-cyan-900 to-cyan-800',
+      subjects: 'Core Subjects',
+      duration: '90 Minutes'
+    },
+    'interview': {
+      name: 'Job Interview Aptitude Test',
+      description: 'Verbal reasoning, numerical aptitude, and critical thinking practice',
+      icon: Briefcase,
+      gradient: 'from-amber-800 to-orange-900',
+      subjects: 'Aptitude & Reasoning',
+      duration: '45 Minutes'
+    },
+    'general': {
+      name: 'General Knowledge Quiz',
+      description: 'Broad knowledge questions spanning multiple topics',
+      icon: Globe,
+      gradient: 'from-teal-800 to-emerald-900',
+      subjects: 'All Topics',
+      duration: 'Flexible'
+    }
+  };
+
+  const currentExam = examDetails[examType || ""] || {
+    name: "Mock Exam",
+    description: "Practice examination",
+    icon: BookOpen,
+    gradient: 'from-slate-900 to-slate-800',
+    duration: 'Timed'
+  };
+
+  const ExamIcon = currentExam.icon;
+
+  const handleConfirmStart = async () => {
+    if (!user || !userData) return;
+    if (userData.credits < cost) {
+      router.push("/dashboard/buy-credits");
+      return;
+    }
+
+    try {
+      setIsDeducting(true);
+
+      // 1. DEDUCT CREDITS IN FIREBASE
+      const userRef = doc(db, "users", user.uid);
+      await updateDoc(userRef, {
+        credits: increment(-cost)
+      });
+
+      // 2. LOG THE USAGE
+      await addDoc(collection(db, "creditUsage"), {
+        userId: user.uid,
+        examType: examType,
+        examName: currentExam.name,
+        creditsSpent: cost,
+        date: serverTimestamp(),
+      });
+
+     
+      router.push(`/dashboard/mock?type=${examType}`);
+
+    } catch (error) {
+      console.error("Failed to start exam:", error);
+      alert("Error processing credits. Please try again.");
+      setIsDeducting(false);
+    }
+  };
+
+  if (!examType) {
+    return (
+      <div className="max-w-2xl mx-auto py-10 px-4">
+        <div className="text-center py-20">
+          <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Invalid Exam Type</h2>
+          <p className="text-slate-500 mb-6">The exam type you selected is not valid.</p>
+          <Link 
+            href="/dashboard/practice"
+            className="inline-block px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition"
+          >
+            Back to Practice Centre
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto py-10 px-4">
+      <Link href="/dashboard/practice" className="flex items-center gap-2 text-slate-500 hover:text-emerald-600 mb-8 transition">
+        <ArrowLeft size={20} /> Back to Practice Centre
+      </Link>
+
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
+        {/* Header with Gradient */}
+        <div className={`bg-gradient-to-br ${currentExam.gradient} p-8 text-white text-center relative overflow-hidden`}>
+          {/* Decorative glow */}
+          <div className="absolute -top-10 -right-10 h-40 w-40 bg-white/10 rounded-full blur-3xl"></div>
+          
+          <div className="relative z-10">
+            <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg backdrop-blur-sm">
+              <ExamIcon size={32} />
+            </div>
+            <h1 className="text-2xl font-bold mb-2">{currentExam.name}</h1>
+            <p className="text-white/80 max-w-md mx-auto">{currentExam.description}</p>
+            
+            {/* Exam Meta Info */}
+            <div className="flex items-center justify-center gap-6 mt-6 pt-6 border-t border-white/20">
+              {currentExam.subjects && (
+                <div className="text-center">
+                  <p className="text-xs text-white/60 uppercase tracking-wider mb-1">Coverage</p>
+                  <p className="font-bold">{currentExam.subjects}</p>
+                </div>
+              )}
+              <div className="text-center">
+                <p className="text-xs text-white/60 uppercase tracking-wider mb-1">Duration</p>
+                <p className="font-bold">{currentExam.duration}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-white/60 uppercase tracking-wider mb-1">Format</p>
+                <p className="font-bold">Timed Mock</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-8">
+          <div className="space-y-6">
+            {/* Credit Breakdown */}
+            <div className="bg-slate-50 rounded-2xl p-6 space-y-4">
+              <div className="flex justify-between items-center text-slate-600">
+                <span>Current Balance</span>
+                <span className="font-bold flex items-center gap-1">
+                  <Coins size={16} /> {userData?.credits || 0}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-red-600">
+                <span>Exam Cost</span>
+                <span className="font-bold flex items-center gap-1">
+                  - <Coins size={16} /> {cost}
+                </span>
+              </div>
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-slate-900 font-bold text-lg">
+                <span>Remaining Balance</span>
+                <span className="text-emerald-600 flex items-center gap-1">
+                  <Coins size={20} /> {(userData?.credits || 0) - cost}
+                </span>
+              </div>
+            </div>
+
+            {/* Exam Instructions */}
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+              <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
+                <ShieldCheck size={18} />
+                Exam Instructions
+              </h3>
+              <ul className="space-y-2 text-sm text-blue-800">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">•</span>
+                  <span>This is a timed examination. Make sure you have a stable internet connection.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">•</span>
+                  <span>You can navigate between questions but cannot pause the timer.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">•</span>
+                  <span>Your answers are auto-saved as you progress through the exam.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">•</span>
+                  <span>Detailed solutions will be provided after submission.</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Warning Info */}
+            <div className="flex gap-3 p-4 bg-amber-50 rounded-xl border border-amber-100 text-amber-800 text-sm">
+              <AlertCircle className="flex-shrink-0 mt-0.5" size={20} />
+              <p>
+                Credits are deducted once you click "Start Exam". 
+                Exiting the exam early will <strong>not refund credits</strong>. 
+                Make sure you're ready before proceeding.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <button
+              onClick={handleConfirmStart}
+              disabled={isDeducting || (userData?.credits || 0) < cost}
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2 text-lg"
+            >
+              {isDeducting ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <ShieldCheck size={22} />
+                  Confirm & Start Exam
+                </>
+              )}
+            </button>
+            
+            {(userData?.credits || 0) < cost && (
+              <div className="text-center">
+                <p className="text-red-500 font-medium text-sm mb-3">
+                  Insufficient credits to start this exam.
+                </p>
+                <Link 
+                  href="/dashboard/buy-credits"
+                  className="inline-flex items-center gap-2 px-6 py-2 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition"
+                >
+                  <Zap size={18} />
+                  Buy Credits
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Additional Tips */}
+      <div className="mt-6 bg-slate-50 rounded-2xl p-6 border border-slate-200">
+        <h3 className="font-bold text-slate-900 mb-3">📚 Pro Tips for Success</h3>
+        <ul className="space-y-2 text-sm text-slate-600">
+          <li className="flex items-start gap-2">
+            <span className="text-emerald-600 font-bold">✓</span>
+            <span>Find a quiet environment free from distractions</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-emerald-600 font-bold">✓</span>
+            <span>Have a pen and paper ready for rough work</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-emerald-600 font-bold">✓</span>
+            <span>Read each question carefully before selecting your answer</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-emerald-600 font-bold">✓</span>
+            <span>Manage your time wisely - don't spend too long on difficult questions</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}

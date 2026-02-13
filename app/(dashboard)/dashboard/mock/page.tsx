@@ -19,7 +19,7 @@ const EXAM_CONFIG = {
     color: "emerald",
     duration: "2 Hours (120 mins)",
     subjectCount: 4,
-    questionsPerSubject: 40, // 40 × 4 = 160 (approx JAMB format)
+    questionsPerSubject: 40,
     multiSubject: true,
     gradient: "from-slate-900 to-slate-800",
     accent: "bg-emerald-500",
@@ -81,7 +81,7 @@ const EXAM_CONFIG = {
 
 type ExamType = keyof typeof EXAM_CONFIG;
 
-// ── Inner component (uses useSearchParams — must be wrapped in Suspense) ──────
+
 function MockSetupInner() {
   const searchParams = useSearchParams();
   const router = useRouter();

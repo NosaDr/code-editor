@@ -7,6 +7,7 @@ import Link from "next/link";
 import { signOut } from "firebase/auth";
 import { auth } from "@/app/lib/firebase";
 import { toast } from "sonner";
+import AdminSeeder from "./seeder/page";
 
 const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || "")
   .split(",")
