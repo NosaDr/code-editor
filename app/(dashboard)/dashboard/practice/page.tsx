@@ -124,10 +124,7 @@ const ALL_EXAM_TYPES = [
     creditCost: 5,
     gradient: "from-teal-800 to-emerald-900",
     icon: Globe,
-<<<<<<< HEAD
-=======
     premiumOnly: true,
->>>>>>> bf2908dc8e929b1970b7d4757d88893233188db4
     glowColor: "bg-teal-400",
     borderColor: "border-teal-700",
     textColor: "text-white",
