@@ -3,7 +3,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { db } from "@/app/lib/firebase";
 import { doc, getDoc, collection, query, where, getCountFromServer } from "firebase/firestore";
-import { ArrowLeft, BookOpen, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Sparkles, Loader2, Coins } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/app/context/AuthContext";
 
@@ -65,6 +65,12 @@ const formatTopicId = (topic: string) => {
   return topic.toLowerCase().replace(/\s+/g, '-');
 };
 
+// Calculate credits needed based on question count (5 credits per 50 questions)
+const calculateCredits = (questionCount: number): number => {
+  if (questionCount === 0) return 0;
+  return Math.ceil(questionCount / 50) * 5;
+};
+
 export default function TopicSelectionPage() {
   const { user } = useAuth();
   const params = useParams();
@@ -73,18 +79,10 @@ export default function TopicSelectionPage() {
 
   const [subjectName, setSubjectName] = useState("");
   const [topicCounts, setTopicCounts] = useState<Record<string, number>>({});
-  const [topicExamCounts, setTopicExamCounts] = useState<Record<string, number>>({});
+  const [totalQuestions, setTotalQuestions] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const topics = SUBJECT_TOPICS[subjectId] || [];
-
-  // Defined at component level so both handleTopicClick and JSX can access it
-  const getTopicCost = (topicId: string): number => {
-    const count = topicExamCounts[topicId] || 0;
-    if (count === 0) return 5;   // First attempt
-    if (count < 3) return 3;     // 2nd–3rd attempt
-    return 2;                    // 4th+ attempt
-  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -95,27 +93,10 @@ export default function TopicSelectionPage() {
           setSubjectName(subjectDoc.data().name);
         }
 
-        // Get how many times user has attempted each topic
-        if (user) {
-          const countsPerTopic: Record<string, number> = {};
-          await Promise.all(
-            topics.map(async (topic) => {
-              const topicId = formatTopicId(topic);
-              const q = query(
-                collection(db, "testResults"),
-                where("userId", "==", user.uid),
-                where("subjectId", "==", subjectId),
-                where("topic", "==", topicId)
-              );
-              const snap = await getCountFromServer(q);
-              countsPerTopic[topicId] = snap.data().count;
-            })
-          );
-          setTopicExamCounts(countsPerTopic);
-        }
-
         // Count available questions per topic
         const counts: Record<string, number> = {};
+        let total = 0;
+
         await Promise.all(
           topics.map(async (topic) => {
             const topicId = formatTopicId(topic);
@@ -126,14 +107,18 @@ export default function TopicSelectionPage() {
                 where("topics", "array-contains", topicId)
               );
               const snapshot = await getCountFromServer(q);
-              counts[topicId] = snapshot.data().count;
+              const count = snapshot.data().count;
+              counts[topicId] = count;
+              total += count;
             } catch (error) {
               console.error(`Error counting ${topic}:`, error);
               counts[topicId] = 0;
             }
           })
         );
+        
         setTopicCounts(counts);
+        setTotalQuestions(total);
 
       } catch (error) {
         console.error("Error fetching topics:", error);
@@ -145,15 +130,21 @@ export default function TopicSelectionPage() {
     fetchData();
   }, [subjectId, user]);
 
-
-const handleTopicClick = (topic: string) => {
-  const topicId = formatTopicId(topic);
-  const cost = getTopicCost(topicId);
-  router.push(`/dashboard/practice/${subjectId}/start?topic=${encodeURIComponent(topicId)}&cost=${cost}`);
-};
+  const handleTopicClick = (topic: string) => {
+    const topicId = formatTopicId(topic);
+    const questionCount = topicCounts[topicId] || 0;
+    const cost = calculateCredits(questionCount);
+    
+    router.push(
+      `/dashboard/practice/${subjectId}/start?topic=${encodeURIComponent(topicId)}&cost=${cost}&totalQuestions=${questionCount}`
+    );
+  };
 
   const handleAllTopics = () => {
-    router.push(`/dashboard/practice/${subjectId}/start?cost=5`);
+    const cost = calculateCredits(totalQuestions);
+    router.push(
+      `/dashboard/practice/${subjectId}/start?cost=${cost}&totalQuestions=${totalQuestions}`
+    );
   };
 
   if (loading) {
@@ -163,6 +154,8 @@ const handleTopicClick = (topic: string) => {
       </div>
     );
   }
+
+  const allTopicsCost = calculateCredits(totalQuestions);
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 px-4 py-8">
@@ -179,13 +172,26 @@ const handleTopicClick = (topic: string) => {
         <p className="text-slate-500 mt-2">
           Choose a specific topic to practice, or select "All Topics" for mixed practice
         </p>
+        <div className="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
+          <Coins size={16} className="text-amber-600" />
+          <span className="text-sm text-amber-800">
+            <strong>5 credits</strong> per 50 questions
+          </span>
+        </div>
       </div>
 
       {/* All Topics Option */}
       <div
         onClick={handleAllTopics}
-        className="bg-gradient-to-br from-emerald-600 to-emerald-700 p-6 rounded-2xl cursor-pointer hover:shadow-xl transition group"
+        className="bg-gradient-to-br from-emerald-600 to-emerald-700 p-6 rounded-2xl cursor-pointer hover:shadow-xl transition group relative overflow-hidden"
       >
+        <div className="absolute top-3 right-3 bg-white/20 backdrop-blur-sm px-3 py-1.5 rounded-full">
+          <span className="text-white font-bold text-sm flex items-center gap-1">
+            <Coins size={14} />
+            {allTopicsCost} credits
+          </span>
+        </div>
+
         <div className="flex items-center justify-between text-white">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-white/20 rounded-xl">
@@ -193,7 +199,9 @@ const handleTopicClick = (topic: string) => {
             </div>
             <div>
               <h3 className="text-xl font-bold">All Topics</h3>
-              <p className="text-emerald-100 text-sm">Practice questions from all topics randomly</p>
+              <p className="text-emerald-100 text-sm">
+                Practice {totalQuestions} questions from all topics randomly
+              </p>
             </div>
           </div>
           <div className="opacity-0 group-hover:opacity-100 transition">
@@ -208,14 +216,13 @@ const handleTopicClick = (topic: string) => {
           {topics.map((topic) => {
             const topicId = formatTopicId(topic);
             const questionCount = topicCounts[topicId] || 0;
-            const cost = getTopicCost(topicId);
-            const attemptCount = topicExamCounts[topicId] || 0;
+            const cost = calculateCredits(questionCount);
 
             return (
               <div
                 key={topicId}
                 onClick={() => questionCount > 0 && handleTopicClick(topic)}
-                className={`bg-white border-2 border-slate-200 p-6 rounded-2xl transition group ${
+                className={`bg-white border-2 border-slate-200 p-6 rounded-2xl transition group relative ${
                   questionCount > 0
                     ? 'cursor-pointer hover:border-emerald-500 hover:shadow-lg'
                     : 'opacity-50 cursor-not-allowed'
@@ -234,17 +241,11 @@ const handleTopicClick = (topic: string) => {
                       {questionCount} {questionCount === 1 ? 'question' : 'questions'}
                     </span>
 
-                    {/* Dynamic cost badge */}
+                    {/* Credits cost badge */}
                     {questionCount > 0 && (
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                        cost === 5 ? 'bg-amber-100 text-amber-700' :
-                        cost === 3 ? 'bg-blue-100 text-blue-700' :
-                        'bg-green-100 text-green-700'
-                      }`}>
-                        {cost} credits
-                        {attemptCount > 0 && (
-                          <span className="ml-1 opacity-70">· {attemptCount}x done</span>
-                        )}
+                      <span className="text-xs font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
+                        <Coins size={12} />
+                        {cost} {cost === 1 ? 'credit' : 'credits'}
                       </span>
                     )}
                   </div>
@@ -275,9 +276,10 @@ const handleTopicClick = (topic: string) => {
           <p className="text-slate-500">Topics not configured for this subject yet.</p>
           <button
             onClick={handleAllTopics}
-            className="mt-4 px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition"
+            className="mt-4 px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition flex items-center gap-2 mx-auto"
           >
-            Practice All Questions
+            <Coins size={18} />
+            Practice All Questions ({allTopicsCost} credits)
           </button>
         </div>
       )}

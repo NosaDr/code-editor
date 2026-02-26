@@ -14,7 +14,8 @@ const EXAM_CATEGORIES = [
     icon: GraduationCap,
     color: "bg-emerald-100 text-emerald-700 border-emerald-200",
     exams: ["JAMB/UTME", "WAEC/SSCE", "NECO"],
-    hasSpecialization: true
+    hasSpecialization: true,
+    comingSoon: false
   },
   {
     id: "junior" as const,
@@ -23,7 +24,8 @@ const EXAM_CATEGORIES = [
     icon: School,
     color: "bg-blue-100 text-blue-700 border-blue-200",
     exams: ["Common Entrance", "BECE", "Junior WAEC"],
-    hasSpecialization: false
+    hasSpecialization: false,
+    comingSoon: true
   },
   {
     id: "professional" as const,
@@ -32,7 +34,8 @@ const EXAM_CATEGORIES = [
     icon: Briefcase,
     color: "bg-purple-100 text-purple-700 border-purple-200",
     exams: ["Job Aptitude", "Interview Prep", "General Knowledge"],
-    hasSpecialization: false
+    hasSpecialization: false,
+    comingSoon: true
   }
 ];
 
@@ -71,20 +74,17 @@ type ExamCategory = "senior" | "junior" | "professional";
 type Specialization = "sciences" | "arts" | "commercial" | "general";
 
 export default function SettingsPage() {
-  const { user, userData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<ExamCategory>("senior");
   const [selectedSpecialization, setSelectedSpecialization] = useState<Specialization>("general");
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [verifiedData, setVerifiedData] = useState<any>(null);
 
-  // Initialize from userData
+
   useEffect(() => {
     if (userData) {
       const category = (userData?.examCategory as ExamCategory) || "senior";
       const spec = ((userData as any)?.specialization as Specialization) || "general";
-      
-    
       
       setSelectedCategory(category);
       setSelectedSpecialization(spec);
@@ -112,65 +112,54 @@ export default function SettingsPage() {
         examCategory: selectedCategory,
       };
 
-      // Always save specialization field
+
       if (selectedCategory === 'senior') {
         updates.specialization = selectedSpecialization;
       } else {
         updates.specialization = 'general';
       }
 
-      // Save to Firestore
-      await updateDoc(doc(db, "users", user.uid), updates);
     
+      await updateDoc(doc(db, "users", user.uid), updates);
       
-      // Wait a moment for Firestore to propagate
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Verify the save by reading back from Firestore
-      const verifyDoc = await getDoc(doc(db, "users", user.uid));
-      const savedData = verifyDoc.data();
 
-      
-      setVerifiedData(savedData);
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+     
+      if (refreshUserData) {
+        await refreshUserData();
+      }
+
       setSaveSuccess(true);
+      toast.success("Settings saved successfully!");
       
-      toast.success("Settings saved successfully! Check the console for verification.");
-      
-      // DON'T redirect yet - let user see the debug info
-      // Uncomment this line after testing:
-      // setTimeout(() => { window.location.href = "/dashboard/practice"; }, 2000);
+      // Clear success message after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000);
       
     } catch (error) {
       console.error("Error saving settings:", error);
       toast.error("Failed to update settings");
-      setSaving(false);
     } finally {
       setSaving(false);
     }
   };
 
   const handleCategoryChange = (categoryId: ExamCategory) => {
-   
     setSelectedCategory(categoryId);
     
     // If switching to junior or professional, set specialization to general
     const category = EXAM_CATEGORIES.find(cat => cat.id === categoryId);
     if (!category?.hasSpecialization) {
-     
       setSelectedSpecialization('general');
     }
   };
 
   const handleSpecializationChange = (specId: Specialization) => {
-  
     setSelectedSpecialization(specId);
-
   };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      
-
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-slate-900 mb-2">Account Settings</h1>
@@ -188,6 +177,18 @@ export default function SettingsPage() {
           <div className="flex justify-between items-center py-2 border-b border-slate-100">
             <span className="text-slate-600 text-sm">Email</span>
             <span className="font-semibold text-slate-900">{userData?.email}</span>
+          </div>
+          <div className="flex justify-between items-center py-2 border-b border-slate-100">
+            <span className="text-slate-600 text-sm">Exam Category</span>
+            <span className="font-semibold text-slate-900 capitalize">
+              {userData?.examCategory || "Not set"}
+            </span>
+          </div>
+          <div className="flex justify-between items-center py-2 border-b border-slate-100">
+            <span className="text-slate-600 text-sm">Specialization</span>
+            <span className="font-semibold text-slate-900 capitalize">
+              {(userData as any)?.specialization || "Not set"}
+            </span>
           </div>
           <div className="flex justify-between items-center py-2">
             <span className="text-slate-600 text-sm">Subscription</span>
@@ -215,35 +216,57 @@ export default function SettingsPage() {
           {EXAM_CATEGORIES.map((category) => {
             const Icon = category.icon;
             const isSelected = selectedCategory === category.id;
+            const isDisabled = category.comingSoon;
 
             return (
               <button
                 key={category.id}
-                onClick={() => handleCategoryChange(category.id)}
-                className={`p-5 rounded-xl border-2 transition-all text-left group hover:shadow-lg ${
-                  isSelected
+                onClick={() => !isDisabled && handleCategoryChange(category.id)}
+                disabled={isDisabled}
+                className={`p-5 rounded-xl border-2 transition-all text-left group hover:shadow-lg relative overflow-hidden ${
+                  isDisabled
+                    ? "opacity-60 cursor-not-allowed border-slate-200 bg-slate-50"
+                    : isSelected
                     ? "border-emerald-500 bg-emerald-50 shadow-md"
                     : "border-slate-200 hover:border-slate-300 bg-white"
                 }`}
               >
-                <div className={`w-12 h-12 rounded-lg ${category.color} flex items-center justify-center mb-4`}>
+                
+                {isDisabled && (
+                  <div className="absolute top-3 right-3">
+                    <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-sm">
+                      COMING SOON
+                    </span>
+                  </div>
+                )}
+
+                <div className={`w-12 h-12 rounded-lg ${category.color} flex items-center justify-center mb-4 ${
+                  isDisabled ? 'opacity-50' : ''
+                }`}>
                   <Icon size={24} />
                 </div>
 
-                <h3 className="font-bold text-slate-900 mb-1">{category.label}</h3>
-                <p className="text-xs text-slate-500 leading-relaxed mb-3">
+                <h3 className={`font-bold text-slate-900 mb-1 ${isDisabled ? 'opacity-70' : ''}`}>
+                  {category.label}
+                </h3>
+                <p className={`text-xs text-slate-500 leading-relaxed mb-3 ${isDisabled ? 'opacity-70' : ''}`}>
                   {category.description}
                 </p>
 
                 <div className="flex flex-wrap gap-1 mb-3">
                   {category.exams.map((exam, idx) => (
-                    <span key={idx} className="text-[9px] bg-slate-100 text-slate-600 px-2 py-1 rounded-full">
+                    <span 
+                      key={idx} 
+                      className={`text-[9px] bg-slate-100 text-slate-600 px-2 py-1 rounded-full ${
+                        isDisabled ? 'opacity-50' : ''
+                      }`}
+                    >
                       {exam}
                     </span>
                   ))}
                 </div>
 
-                {isSelected && (
+                {isSelected && !isDisabled && (
                   <div className="flex items-center gap-1 text-emerald-600 text-sm font-bold">
                     <CheckCircle size={16} /> Currently Selected
                   </div>
@@ -254,13 +277,12 @@ export default function SettingsPage() {
         </div>
       </div>
 
-
+      {/* Specialization Selection */}
       {showSpecialization && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
           <div className="mb-6">
             <h2 className="text-xl font-bold text-slate-900 mb-2">
-              Subject Specialization 
-              <span className="ml-2 text-sm font-normal text-slate-500">(Current: {selectedSpecialization})</span>
+              Subject Specialization
             </h2>
             <p className="text-slate-600 text-sm">
               Choose your subject track to filter subjects. Click a card to select.
@@ -306,14 +328,14 @@ export default function SettingsPage() {
         </div>
       )}
 
-   
+      {/* Save Changes Banner */}
       {hasChanges && (
         <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
               <p className="text-sm font-bold text-amber-900 mb-1">⚠️ You have unsaved changes</p>
               <p className="text-xs text-amber-700">
-                Will save: Category = {selectedCategory}, Specialization = {selectedSpecialization}
+                Category: <strong>{selectedCategory}</strong> | Specialization: <strong>{selectedSpecialization}</strong>
               </p>
             </div>
             <button
@@ -329,7 +351,7 @@ export default function SettingsPage() {
               ) : (
                 <>
                   <Save size={18} />
-                  Save
+                  Save Changes
                 </>
               )}
             </button>
@@ -337,7 +359,18 @@ export default function SettingsPage() {
         </div>
       )}
 
-   
+      {/* Success Message */}
+      {saveSuccess && (
+        <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-5">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="text-emerald-600" size={24} />
+            <div>
+              <p className="text-sm font-bold text-emerald-900">Settings saved successfully!</p>
+              <p className="text-xs text-emerald-700">Your preferences have been updated.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

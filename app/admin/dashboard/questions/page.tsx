@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { motion, AnimatePresence, Variants } from "framer-motion";
+import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/app/lib/firebase";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
@@ -20,7 +20,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  CheckSquare,
+  Square,
+  Trash
 } from "lucide-react";
 
 interface Question {
@@ -38,7 +41,7 @@ interface Question {
 const ITEMS_PER_PAGE_OPTIONS = [5, 10, 20, 50];
 
 // Animation variants
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -46,7 +49,7 @@ const containerVariants = {
   }
 };
 
-const cardVariants = {
+const cardVariants: Variants = {
   hidden: { opacity: 0, y: 24, scale: 0.98 },
   show: { 
     opacity: 1, 
@@ -62,7 +65,7 @@ const cardVariants = {
   }
 };
 
-const modalVariants = {
+const modalVariants: Variants = {
   hidden: { opacity: 0, scale: 0.94, y: 20 },
   show: { 
     opacity: 1, 
@@ -86,6 +89,10 @@ export default function QuestionBank() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
+  // Bulk Selection
+  const [selectedQuestions, setSelectedQuestions] = useState<Set<string>>(new Set());
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+
   // Edit Modal
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [editForm, setEditForm] = useState({
@@ -99,9 +106,11 @@ export default function QuestionBank() {
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     questionId: string | null;
+    isBulk?: boolean;
   }>({
     isOpen: false,
-    questionId: null
+    questionId: null,
+    isBulk: false
   });
 
   // Fetch Questions & Subjects
@@ -130,6 +139,11 @@ export default function QuestionBank() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterSubject, itemsPerPage]);
+
+  // Clear selection when filters change
+  useEffect(() => {
+    setSelectedQuestions(new Set());
+  }, [searchTerm, filterSubject, currentPage, itemsPerPage]);
 
   // Filter Questions
   const filteredQuestions = questions.filter(q => {
@@ -162,6 +176,45 @@ export default function QuestionBank() {
     }
     return range;
   };
+
+  // Selection handlers
+  const toggleSelectQuestion = (questionId: string) => {
+    setSelectedQuestions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(questionId)) {
+        newSet.delete(questionId);
+      } else {
+        newSet.add(questionId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedQuestions.size === paginatedQuestions.length) {
+      // Deselect all on current page
+      setSelectedQuestions(prev => {
+        const newSet = new Set(prev);
+        paginatedQuestions.forEach(q => newSet.delete(q.id));
+        return newSet;
+      });
+    } else {
+      // Select all on current page
+      setSelectedQuestions(prev => {
+        const newSet = new Set(prev);
+        paginatedQuestions.forEach(q => newSet.add(q.id));
+        return newSet;
+      });
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedQuestions(new Set());
+  };
+
+  // Check if all questions on current page are selected
+  const allCurrentPageSelected = paginatedQuestions.length > 0 && 
+    paginatedQuestions.every(q => selectedQuestions.has(q.id));
 
   // Open Edit Modal
   const handleEdit = (question: Question) => {
@@ -201,21 +254,59 @@ export default function QuestionBank() {
   };
 
   const handleDeleteClick = (questionId: string) => {
-    setConfirmDialog({ isOpen: true, questionId });
+    setConfirmDialog({ isOpen: true, questionId, isBulk: false });
+  };
+
+  const handleBulkDeleteClick = () => {
+    setConfirmDialog({ isOpen: true, questionId: null, isBulk: true });
   };
 
   const handleConfirmDelete = async () => {
-    const questionId = confirmDialog.questionId;
-    if (!questionId) return;
+    if (confirmDialog.isBulk) {
+      // Bulk delete
+      await handleBulkDelete();
+    } else {
+      // Single delete
+      const questionId = confirmDialog.questionId;
+      if (!questionId) return;
+      try {
+        await deleteDoc(doc(db, "questions", questionId));
+        setQuestions(prev => prev.filter(q => q.id !== questionId));
+        toast.success("Question deleted successfully!");
+      } catch (error) {
+        console.error("Error deleting question:", error);
+        toast.error("Failed to delete question");
+      }
+    }
+    setConfirmDialog({ isOpen: false, questionId: null, isBulk: false });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedQuestions.size === 0) return;
+    
+    setBulkDeleteLoading(true);
     try {
-      await deleteDoc(doc(db, "questions", questionId));
-      setQuestions(prev => prev.filter(q => q.id !== questionId));
-      toast.success("Question deleted successfully!");
+      const batch = writeBatch(db);
+      
+      // Add all delete operations to batch
+      selectedQuestions.forEach(questionId => {
+        const questionRef = doc(db, "questions", questionId);
+        batch.delete(questionRef);
+      });
+
+      // Commit batch
+      await batch.commit();
+
+      // Update local state
+      setQuestions(prev => prev.filter(q => !selectedQuestions.has(q.id)));
+      
+      toast.success(`${selectedQuestions.size} question(s) deleted successfully!`);
+      setSelectedQuestions(new Set());
     } catch (error) {
-      console.error("Error deleting question:", error);
-      toast.error("Failed to delete question");
+      console.error("Error deleting questions:", error);
+      toast.error("Failed to delete questions");
     } finally {
-      setConfirmDialog({ isOpen: false, questionId: null });
+      setBulkDeleteLoading(false);
     }
   };
 
@@ -261,6 +352,52 @@ export default function QuestionBank() {
           </p>
         </motion.div>
       </motion.div>
+
+      {/* Bulk Actions Bar */}
+      <AnimatePresence>
+        {selectedQuestions.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: -20, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl p-4 shadow-lg"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CheckSquare className="text-white" size={20} />
+                <span className="text-white font-semibold">
+                  {selectedQuestions.size} question{selectedQuestions.size !== 1 ? 's' : ''} selected
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={clearSelection}
+                  className="px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition font-medium"
+                >
+                  Clear Selection
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleBulkDeleteClick}
+                  disabled={bulkDeleteLoading}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {bulkDeleteLoading ? (
+                    <Loader2 className="animate-spin" size={18} />
+                  ) : (
+                    <Trash size={18} />
+                  )}
+                  Delete Selected
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Filters */}
       <motion.div 
@@ -331,105 +468,151 @@ export default function QuestionBank() {
             <p className="text-slate-500">No questions found.</p>
           </motion.div>
         ) : (
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`page-${safeCurrentPage}-${filterSubject}-${searchTerm}-${itemsPerPage}`}
-              className="space-y-4"
-              variants={containerVariants}
-              initial="hidden"
-              animate="show"
-              exit={{ opacity: 0, transition: { duration: 0.12 } }}
-            >
-              {paginatedQuestions.map((q, idx) => (
-                <motion.div
-                  key={q.id}
-                  variants={cardVariants}
-                  className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
+          <>
+            {/* Select All Checkbox */}
+            {paginatedQuestions.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 px-4 py-2 bg-slate-50 rounded-lg border border-slate-200"
+              >
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={toggleSelectAll}
+                  className="flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition"
                 >
-                  {/* Question Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-1 rounded uppercase">
-                          {q.subject}
-                        </span>
-                        <span className="text-slate-400 text-xs">#{startIdx + idx + 1}</span>
-                        {q.imageURL && (
-                          <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
-                            <ImageIcon size={12} />
-                            Has Image
+                  {allCurrentPageSelected ? (
+                    <CheckSquare className="text-emerald-600" size={20} />
+                  ) : (
+                    <Square className="text-slate-400" size={20} />
+                  )}
+                  <span>
+                    {allCurrentPageSelected ? 'Deselect' : 'Select'} all on this page
+                  </span>
+                </motion.button>
+              </motion.div>
+            )}
+
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`page-${safeCurrentPage}-${filterSubject}-${searchTerm}-${itemsPerPage}`}
+                className="space-y-4"
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                exit={{ opacity: 0, transition: { duration: 0.12 } }}
+              >
+                {paginatedQuestions.map((q, idx) => (
+                  <motion.div
+                    key={q.id}
+                    variants={cardVariants}
+                    className={`bg-white p-6 rounded-2xl border shadow-sm hover:shadow-md transition-all ${
+                      selectedQuestions.has(q.id) 
+                        ? 'border-emerald-500 ring-2 ring-emerald-200' 
+                        : 'border-slate-200'
+                    }`}
+                  >
+                    {/* Question Header */}
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        {/* Checkbox */}
+                        <motion.button
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => toggleSelectQuestion(q.id)}
+                          className="mt-1 flex-shrink-0"
+                        >
+                          {selectedQuestions.has(q.id) ? (
+                            <CheckSquare className="text-emerald-600" size={22} />
+                          ) : (
+                            <Square className="text-slate-400 hover:text-slate-600" size={22} />
+                          )}
+                        </motion.button>
+
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-1 rounded uppercase">
+                              {q.subject}
+                            </span>
+                            <span className="text-slate-400 text-xs">#{startIdx + idx + 1}</span>
+                            {q.imageURL && (
+                              <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
+                                <ImageIcon size={12} />
+                                Has Image
+                              </span>
+                            )}
+                          </div>
+                          <MathText text={q.questionText} className="text-lg font-medium text-slate-900" />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 ml-4">
+                        <motion.button
+                          whileHover={{ scale: 1.12 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleEdit(q)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                          title="Edit Question"
+                        >
+                          <Edit2 size={18} />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.12 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleDeleteClick(q.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                          title="Delete Question"
+                        >
+                          <Trash2 size={18} />
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    {/* Question Image */}
+                    {q.imageURL && (
+                      <div className="mb-4 ml-9">
+                        <img 
+                          src={q.imageURL} 
+                          alt="Question diagram" 
+                          className="max-w-md w-full h-auto rounded-lg border-2 border-slate-200"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Options */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 ml-9">
+                      {q.options.map((opt, optIdx) => (
+                        <div
+                          key={optIdx}
+                          className={`p-3 rounded-lg border text-sm flex items-center gap-2 ${
+                            optIdx === q.correctOption
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
+                              : 'bg-slate-50 border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                            optIdx === q.correctOption ? 'bg-emerald-500 text-white' : 'bg-white border border-slate-300'
+                          }`}>
+                            {String.fromCharCode(65 + optIdx)}
                           </span>
-                        )}
+                          <MathText text={opt} className="flex-1" />
+                          {optIdx === q.correctOption && <CheckCircle size={14} className="ml-auto text-emerald-600" />}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Explanation */}
+                    {q.explanation && (
+                      <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg ml-9">
+                        <p className="text-xs font-bold text-blue-900 mb-1">Explanation:</p>
+                        <MathText text={q.explanation} className="text-sm text-blue-800" />
                       </div>
-                      <MathText text={q.questionText} className="text-lg font-medium text-slate-900" />
-                    </div>
-                    <div className="flex gap-2 ml-4">
-                      <motion.button
-                        whileHover={{ scale: 1.12 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleEdit(q)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                        title="Edit Question"
-                      >
-                        <Edit2 size={18} />
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.12 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleDeleteClick(q.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                        title="Delete Question"
-                      >
-                        <Trash2 size={18} />
-                      </motion.button>
-                    </div>
-                  </div>
-
-                  {/* Question Image */}
-                  {q.imageURL && (
-                    <div className="mb-4">
-                      <img 
-                        src={q.imageURL} 
-                        alt="Question diagram" 
-                        className="max-w-md w-full h-auto rounded-lg border-2 border-slate-200"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Options */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                    {q.options.map((opt, optIdx) => (
-                      <div
-                        key={optIdx}
-                        className={`p-3 rounded-lg border text-sm flex items-center gap-2 ${
-                          optIdx === q.correctOption
-                            ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
-                            : 'bg-slate-50 border-slate-200 text-slate-600'
-                        }`}
-                      >
-                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                          optIdx === q.correctOption ? 'bg-emerald-500 text-white' : 'bg-white border border-slate-300'
-                        }`}>
-                          {String.fromCharCode(65 + optIdx)}
-                        </span>
-                        <MathText text={opt} className="flex-1" />
-                        {optIdx === q.correctOption && <CheckCircle size={14} className="ml-auto text-emerald-600" />}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Explanation */}
-                  {q.explanation && (
-                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
-                      <p className="text-xs font-bold text-blue-900 mb-1">Explanation:</p>
-                      <MathText text={q.explanation} className="text-sm text-blue-800" />
-                    </div>
-                  )}
-                </motion.div>
-              ))}
-            </motion.div>
-          </AnimatePresence>
+                    )}
+                  </motion.div>
+                ))}
+              </motion.div>
+            </AnimatePresence>
+          </>
         )}
       </div>
 
@@ -697,13 +880,17 @@ export default function QuestionBank() {
       
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
-        title="Delete Question?"
-        message="Are you sure you want to delete this question? This action cannot be undone. Note: The associated image will remain in Cloudinary storage."
+        title={confirmDialog.isBulk ? "Delete Multiple Questions?" : "Delete Question?"}
+        message={
+          confirmDialog.isBulk
+            ? `Are you sure you want to delete ${selectedQuestions.size} question${selectedQuestions.size !== 1 ? 's' : ''}? This action cannot be undone.`
+            : "Are you sure you want to delete this question? This action cannot be undone. Note: The associated image will remain in Cloudinary storage."
+        }
         confirmText="Delete"
         cancelText="Cancel"
         isDangerous
         onConfirm={handleConfirmDelete}
-        onCancel={() => setConfirmDialog({ isOpen: false, questionId: null })}
+        onCancel={() => setConfirmDialog({ isOpen: false, questionId: null, isBulk: false })}
       />
     </div>
   );

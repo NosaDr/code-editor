@@ -28,7 +28,8 @@ const EXAM_CATEGORIES = [
     icon: School,
     color: "bg-blue-100 text-blue-700 border-blue-200",
     exams: ["Common Entrance", "BECE", "Junior WAEC"],
-    hasSpecialization: false
+    hasSpecialization: false,
+     comingSoon: true 
   },
   {
     id: "professional" as const,
@@ -37,7 +38,8 @@ const EXAM_CATEGORIES = [
     icon: Briefcase,
     color: "bg-purple-100 text-purple-700 border-purple-200",
     exams: ["Job Aptitude", "Interview Prep", "General Knowledge"],
-    hasSpecialization: false
+    hasSpecialization: false,
+    comingSoon: true 
   }
 ];
 
@@ -471,45 +473,62 @@ const handleCheckVerification = async () => {
                 </label>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {EXAM_CATEGORIES.map((category) => {
-                    const Icon = category.icon;
-                    const isSelected = examCategory === category.id;
-                    
-                    return (
-                      <button
-                        key={category.id}
-                        type="button"
-                        onClick={() => setExamCategory(category.id)}
-                        className={`
-                          p-4 rounded-xl border-2 transition-all text-left
-                          ${isSelected 
-                            ? 'border-emerald-500 bg-emerald-50 shadow-lg' 
-                            : 'border-slate-200 hover:border-slate-300 bg-white'
-                          }
-                        `}
-                      >
-                        <div className={`w-10 h-10 rounded-lg ${category.color} flex items-center justify-center mb-3`}>
-                          <Icon size={20} />
-                        </div>
-                        <h4 className="font-bold text-slate-900 text-sm mb-1">{category.label}</h4>
-                        <p className="text-xs text-slate-500 leading-relaxed">{category.description}</p>
-                        
-                        <div className="flex flex-wrap gap-1 mt-3">
-                          {category.exams.slice(0, 2).map((exam, idx) => (
-                            <span key={idx} className="text-[9px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                              {exam}
-                            </span>
-                          ))}
-                        </div>
-                        
-                        {isSelected && (
-                          <div className="mt-3 flex items-center gap-1 text-emerald-600 text-xs font-bold">
-                            <CheckCircle size={14} /> Selected
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+                {EXAM_CATEGORIES.map((category) => {
+                        const Icon = category.icon;
+                        const isSelected = examCategory === category.id;
+                        const isDisabled = category.comingSoon;
+
+                        return (
+                          <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => !isDisabled && setExamCategory(category.id)}
+                            disabled={isDisabled}
+                            className={`
+                              relative p-4 rounded-xl border-2 transition-all text-left overflow-hidden
+                              ${isDisabled
+                                ? 'opacity-60 cursor-not-allowed border-slate-200 bg-slate-50'
+                                : isSelected
+                                ? 'border-emerald-500 bg-emerald-50 shadow-lg'
+                                : 'border-slate-200 hover:border-slate-300 bg-white'
+                              }
+                            `}
+                          >
+                          
+                            {isDisabled && (
+                              <div className="absolute top-2 right-2">
+                                <span className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                                  COMING SOON
+                                </span>
+                              </div>
+                            )}
+
+                            <div className={`w-10 h-10 rounded-lg ${category.color} flex items-center justify-center mb-3 ${isDisabled ? 'opacity-50' : ''}`}>
+                              <Icon size={20} />
+                            </div>
+                            <h4 className={`font-bold text-slate-900 text-sm mb-1 ${isDisabled ? 'opacity-70' : ''}`}>
+                              {category.label}
+                            </h4>
+                            <p className={`text-xs text-slate-500 leading-relaxed ${isDisabled ? 'opacity-70' : ''}`}>
+                              {category.description}
+                            </p>
+
+                            <div className="flex flex-wrap gap-1 mt-3">
+                              {category.exams.slice(0, 2).map((exam, idx) => (
+                                <span key={idx} className={`text-[9px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full ${isDisabled ? 'opacity-50' : ''}`}>
+                                  {exam}
+                                </span>
+                              ))}
+                            </div>
+
+                            {isSelected && !isDisabled && (
+                              <div className="mt-3 flex items-center gap-1 text-emerald-600 text-xs font-bold">
+                                <CheckCircle size={14} /> Selected
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
                 </div>
               </div>
 
@@ -527,7 +546,7 @@ const handleCheckVerification = async () => {
           </div>
         )}
 
-        {/* STEP 2: SPECIALIZATION (Only for Senior Secondary) */}
+        {/* STEP 2: SPECIALIZATION */}
         {step === 'specialization' && (
           <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl p-8 border border-slate-100 animate-in fade-in slide-in-from-right-4">
             <div className="text-center mb-8">

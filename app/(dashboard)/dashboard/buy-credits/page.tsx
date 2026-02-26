@@ -211,11 +211,11 @@ export default function BuyCreditsPage() {
                 </div>
 
                 {/* Package Name */}
-                <h3 className="text-2xl font-bold mb-2">{pkg.name}</h3>
+                <h3 className="text-xl font-bold mb-2">{pkg.name}</h3>
 
                 {/* Credits */}
                 <div className="mb-4">
-                  <p className="text-4xl font-bold">{pkg.credits}</p>
+                  <p className="text-2xl font-bold">{pkg.credits}</p>
                   <p className="text-sm opacity-90">credits</p>
                   
                   {pkg.bonus > 0 && (
@@ -235,7 +235,7 @@ export default function BuyCreditsPage() {
 
                 {/* Price */}
                 <div className="border-t border-white/20 pt-4">
-                  <p className="text-3xl font-bold">₦{pkg.price.toLocaleString()}</p>
+                  <p className="text-xl font-bold">₦{pkg.price.toLocaleString()}</p>
                   <p className="text-sm opacity-75">
                     ₦{(pkg.price / totalCredits).toFixed(2)} per credit
                   </p>
