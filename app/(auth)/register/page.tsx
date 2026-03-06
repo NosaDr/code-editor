@@ -337,76 +337,81 @@ const handleCheckVerification = async () => {
   }
 };
 
-  const handlePurchaseCredits = async () => {
-    if (!createdUser) return;
-    
-    if (selectedPackage.isFree) {
-      handleFreePlan();
-      return;
-    }
-    
-    setLoading(true);
+const handlePurchaseCredits = async () => {
+  if (!createdUser) return;
 
-    try {
-      const PaystackPop = (await import("@paystack/inline-js")).default;
-      const paystack = new PaystackPop();
-      
-      const totalCredits = selectedPackage.credits + selectedPackage.bonus;
-      
-      paystack.newTransaction({
-        key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
-        email: createdUser.email,
-        amount: selectedPackage.price * 100,
-        currency: 'NGN',
-        metadata: { 
-          custom_fields: [
-            { display_name: "User ID", variable_name: "user_id", value: createdUser.uid },
-            { display_name: "Package", variable_name: "package", value: selectedPackage.id },
-            { display_name: "Credits", variable_name: "credits", value: totalCredits.toString() },
-            { display_name: "Type", variable_name: "type", value: "registration" }
-          ]
-        },
-        onSuccess: async (transaction: any) => {
-          try {
-            await updateDoc(doc(db, "users", createdUser.uid), {
-              credits: increment(totalCredits),
-              totalCreditsEarned: increment(totalCredits),
-            });
+  if (selectedPackage.isFree) {
+    handleFreePlan();
+    return;
+  }
 
-            await addDoc(collection(db, "creditTransactions"), {
+  setLoading(true);
+
+  try {
+    const PaystackPop = (await import("@paystack/inline-js")).default;
+    const paystack = new PaystackPop();
+
+
+    paystack.newTransaction({
+      key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
+      email: createdUser.email,
+      amount: selectedPackage.price * 100,
+      currency: "NGN",
+      metadata: {
+        custom_fields: [
+          { display_name: "User ID", variable_name: "user_id", value: createdUser.uid },
+          { display_name: "Package", variable_name: "package", value: selectedPackage.id },
+        ],
+      },
+       
+      onSuccess: async (transaction: any) => {
+        try {
+          toast.loading("Confirming payment...");
+
+         
+          const res = await fetch("/api/verify-payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              reference: transaction.reference,
               userId: createdUser.uid,
               packageId: selectedPackage.id,
-              packageName: selectedPackage.name,
-              creditsPurchased: selectedPackage.credits,
-              bonusCredits: selectedPackage.bonus,
-              totalCredits: totalCredits,
-              amountPaid: selectedPackage.price,
-              paymentRef: transaction.reference,
-              date: serverTimestamp(),
-              status: 'completed',
-              type: 'registration'
-            });
-            
-            toast.success(`Welcome! ${totalCredits} credits added to your account! 🎉`);
-            window.location.href = "/dashboard"; 
-            
-          } catch (error) {
-            console.error("Error updating credits:", error);
-            toast.error("Payment successful but error updating credits. Please contact support.");
-            setLoading(false);
+            }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.error || "Verification failed");
           }
-        },
-        onCancel: () => {
+
+          toast.success(`Welcome! ${data.creditsAdded} credits added to your account! 🎉`);
+          window.location.href = "/dashboard";
+
+        } catch (error: any) {
+          console.error("Credit update error:", error);
+          toast.error(
+            error.message ||
+            "Payment successful but credits failed to update. Please contact support with your payment reference: " +
+            transaction.reference
+            
+          );
           setLoading(false);
-          toast.error("Transaction Cancelled.");
         }
-      });
-    } catch (error) {
-      console.error("Payment error:", error);
-      toast.error("Error initializing payment. Please try again.");
-      setLoading(false);
-    }
-  };
+      },
+
+      onCancel: () => {
+        setLoading(false);
+        toast.error("Transaction cancelled.");
+      },
+    });
+
+  } catch (error) {
+    console.error("Payment error:", error);
+    toast.error("Error initializing payment. Please try again.");
+    setLoading(false);
+  }
+};
 
   const handleFreePlan = () => {
     router.push("/dashboard");
