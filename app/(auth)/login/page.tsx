@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/app/lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, Eye, EyeOff, Mail, CheckCircle2 } from "lucide-react";
+import { Loader2, Eye, EyeOff, Mail, CheckCircle2, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+
+// Get base URL from env
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 export default function Login() {
   const router = useRouter();
@@ -22,42 +23,61 @@ export default function Login() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
+  // ✅ LOGIN WITH CUSTOM API
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Invalid email or password");
+      }
+
+      // Store the access token provided by your API
+      if (data.accessToken) {
+        localStorage.setItem("auth_token", data.accessToken);
+      }
+
+      toast.success("Login successful! Welcome back.");
       router.push("/dashboard");
     } catch (err: any) {
-      setError("Invalid email or password");
+      setError(err.message || "Connection failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
+  // ✅ FORGOT PASSWORD WITH CUSTOM API
   const handlePasswordReset = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setResetLoading(true);
 
     try {
-    
-      await sendPasswordResetEmail(auth, resetEmail, {
-        url: `${window.location.origin}/login`, 
-        handleCodeInApp: false,
+      // Your API: POST /auth/forgot-password sends an OTP
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail }),
       });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || "Failed to send reset code");
+      }
       
       setResetEmailSent(true);
-      toast.success("Password reset email sent! Check your inbox.");
+      toast.success("Reset code sent to your email!");
     } catch (err: any) {
-      if (err.code === "auth/user-not-found") {
-        toast.error("No account found with this email");
-      } else if (err.code === "auth/invalid-email") {
-        toast.error("Invalid email address");
-      } else {
-        toast.error("Failed to send reset email. Please try again.");
-      }
+      toast.error(err.message);
     } finally {
       setResetLoading(false);
     }
@@ -85,15 +105,15 @@ export default function Login() {
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-slate-900">
             {showForgotPassword 
-              ? (resetEmailSent ? "Check Your Email" : "Reset Password")
+              ? (resetEmailSent ? "Verify Reset" : "Forgot Password")
               : "Welcome Back"
             }
           </h1>
           <p className="text-slate-500 text-sm mt-2">
             {showForgotPassword 
               ? (resetEmailSent 
-                  ? "We've sent you a reset link" 
-                  : "Enter your email to receive a reset link"
+                  ? "Check your inbox for the security code" 
+                  : "Enter your email to receive a reset code"
                 )
               : "Continue your CBT preparation 🚀"
             }
@@ -117,7 +137,6 @@ export default function Login() {
         <AnimatePresence mode="wait">
           {showForgotPassword ? (
             resetEmailSent ? (
-           
               <motion.div
                 key="email-sent"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -125,62 +144,30 @@ export default function Login() {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="text-center py-6"
               >
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: 0.2, type: "spring" }}
-                  className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6"
-                >
-                  <CheckCircle2 className="text-emerald-600" size={32} />
-                </motion.div>
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <ShieldCheck className="text-blue-600" size={32} />
+                </div>
 
                 <div className="bg-slate-50 rounded-lg p-6 mb-6 border border-slate-200">
-                  <p className="text-sm text-slate-700 mb-4">
-                    We've sent a password reset email to:
-                  </p>
-                  <p className="font-semibold text-slate-900 mb-6 break-all">
-                    {resetEmail}
-                  </p>
+                  <p className="text-sm text-slate-700 mb-2 font-medium">Reset Code Sent to:</p>
+                  <p className="font-bold text-slate-900 mb-6 break-all">{resetEmail}</p>
                   
-                  <div className="space-y-3 text-left text-sm text-slate-600">
-                    <div className="flex gap-3">
-                      <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-emerald-600 font-bold text-xs">1</span>
-                      </div>
-                      <p>Check your email inbox (and spam folder)</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-emerald-600 font-bold text-xs">2</span>
-                      </div>
-                      <p>Click the <strong className="text-slate-900">"Reset Password"</strong> button in the email</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-emerald-600 font-bold text-xs">3</span>
-                      </div>
-                      <p>Create your new password on the secure page</p>
-                    </div>
-                  </div>
+                  <Link 
+                    href="/reset-password" // You should create a page for /auth/reset-password
+                    className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-100 mb-4"
+                  >
+                    Enter Reset Code
+                  </Link>
                 </div>
 
-                <div className="space-y-3">
-                  <button
-                    onClick={handleBackToLogin}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl transition"
-                  >
-                    Back to Login
-                  </button>
-                  <button
-                    onClick={handleBackToForgotPassword}
-                    className="w-full text-sm text-slate-600 hover:text-emerald-600 font-medium transition"
-                  >
-                    Didn't receive it? Try again
-                  </button>
-                </div>
+                <button
+                  onClick={handleBackToLogin}
+                  className="text-sm text-slate-500 hover:text-slate-800 font-medium transition"
+                >
+                  Back to Login
+                </button>
               </motion.div>
             ) : (
-              // FORGOT PASSWORD FORM
               <motion.form
                 key="forgot-password"
                 initial={{ opacity: 0, x: 20 }}
@@ -190,48 +177,35 @@ export default function Login() {
                 className="space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Email Address
-                  </label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Email Address</label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input
-                      type="email"
-                      required
-                      disabled={resetLoading}
-                      value={resetEmail}
-                      onChange={(e) => setResetEmail(e.target.value)}
+                      type="email" required disabled={resetLoading}
+                      value={resetEmail} onChange={(e) => setResetEmail(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100"
                       placeholder="you@example.com"
                     />
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    You'll receive an email with a button to reset your password
-                  </p>
                 </div>
 
                 <div className="flex gap-3 pt-2">
                   <button
-                    type="button"
-                    onClick={handleBackToLogin}
-                    disabled={resetLoading}
-                    className="flex-1 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-semibold py-3 rounded-xl transition"
+                    type="button" onClick={handleBackToLogin} disabled={resetLoading}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition"
                   >
                     Cancel
                   </button>
                   <button
-                    type="submit"
-                    disabled={resetLoading}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"
+                    type="submit" disabled={resetLoading}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"
                   >
-                    {resetLoading && <Loader2 className="animate-spin" size={18} />}
-                    {resetLoading ? "Sending..." : "Send Reset Link"}
+                    {resetLoading ? <Loader2 className="animate-spin" size={18} /> : "Send Code"}
                   </button>
                 </div>
               </motion.form>
             )
           ) : (
-            // LOGIN FORM
             <motion.form
               key="login"
               initial={{ opacity: 0, x: -20 }}
@@ -240,31 +214,21 @@ export default function Login() {
               onSubmit={handleLogin}
               className="space-y-4"
             >
-              {/* Email */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Email
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
                 <input
-                  type="email"
-                  required
-                  disabled={loading}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="email" required disabled={loading}
+                  value={email} onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100"
                   placeholder="you@example.com"
                 />
               </div>
 
-              {/* Password */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Password
-                  </label>
+                  <label className="block text-sm font-medium text-slate-700">Password</label>
                   <button
-                    type="button"
-                    onClick={() => setShowForgotPassword(true)}
+                    type="button" onClick={() => setShowForgotPassword(true)}
                     className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold hover:underline"
                   >
                     Forgot password?
@@ -274,17 +238,13 @@ export default function Login() {
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
-                    required
-                    disabled={loading}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    required disabled={loading}
+                    value={password} onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none pr-12 disabled:bg-slate-100"
                     placeholder="••••••••"
                   />
-
                   <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    type="button" onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -292,14 +252,11 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* Button */}
               <button
-                disabled={loading}
-                type="submit"
+                disabled={loading} type="submit"
                 className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2 mt-6"
               >
-                {loading && <Loader2 className="animate-spin" size={18} />}
-                {loading ? "Signing in..." : "Login"}
+                {loading ? <Loader2 className="animate-spin" size={18} /> : "Login"}
               </button>
             </motion.form>
           )}
@@ -313,10 +270,7 @@ export default function Login() {
             className="mt-6 text-center text-sm text-slate-600"
           >
             No account?{" "}
-            <Link
-              href="/register"
-              className="text-emerald-600 font-semibold hover:underline"
-            >
+            <Link href="/register" className="text-emerald-600 font-semibold hover:underline">
               Register
             </Link>
           </motion.p>

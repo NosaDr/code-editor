@@ -1,33 +1,29 @@
 "use client";
 import { useAuth } from "@/app/context/AuthContext";
-import { auth } from "@/app/lib/firebase";
-import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { User, Mail, CreditCard, Calendar, LogOut, Shield, CheckCircle, GraduationCap, School, Briefcase, Settings, Coins, TrendingUp } from "lucide-react";
+import { User as UserIcon, Mail, CreditCard, LogOut, Shield, GraduationCap, School, Briefcase, Settings, Coins, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
 export default function ProfilePage() {
-  const { user, userData, loading } = useAuth();
+  // ✅ Using 'user', 'logout', and 'loading' from your new custom AuthContext
+  const { user, logout, loading } = useAuth();
   const router = useRouter();
 
   const handleLogout = async () => {
-    await signOut(auth);
-    router.push("/login");
+    try {
+      await logout();
+      // Router push is handled inside the logout function in context, 
+      // but we keep the logic clean here.
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
   };
 
-  const formatDate = (date: any) => {
-    if (!date) return "N/A";
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return "N/A";
     
     try {
-      if (date && typeof date === 'object' && 'seconds' in date) {
-        return new Date(date.seconds * 1000).toLocaleDateString('en-NG', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      }
-
-      const dateObj = new Date(date);
+      const dateObj = new Date(dateString);
       if (isNaN(dateObj.getTime())) return "N/A";
       
       return dateObj.toLocaleDateString('en-NG', {
@@ -36,14 +32,13 @@ export default function ProfilePage() {
         day: 'numeric'
       });
     } catch (error) {
-      console.error("Date formatting error:", error);
       return "N/A";
     }
   };
 
-  // Get exam category display info
+  // Get exam category display info based on custom backend strings
   const getExamCategoryInfo = () => {
-    const category = userData?.examCategory || 'senior';
+    const category = user?.examCategory || 'senior';
     
     const categoryMap = {
       'senior': { label: 'Senior Secondary (SS1-SS3)', icon: GraduationCap, color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -57,11 +52,11 @@ export default function ProfilePage() {
   const examCategoryInfo = getExamCategoryInfo();
   const ExamIcon = examCategoryInfo.icon;
 
-  if (loading) return <div className="p-10 flex justify-center">Loading Profile...</div>;
+  if (loading) return <div className="p-10 flex justify-center text-slate-500">Loading Profile...</div>;
 
-  const isPremium = userData?.subscriptionStatus === 'premium';
-  const userCredits = userData?.credits || 0;
-  const totalCreditsEarned = userData?.totalCreditsEarned || 0;
+  // Map values from your backend User object
+  const userCredits = user?.credits || 0;
+  const totalCreditsEarned = user?.totalCreditsEarned || 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -75,17 +70,17 @@ export default function ProfilePage() {
           {/* Personal Info Card */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-              <User size={20} className="text-emerald-600"/> Personal Information
+              <UserIcon size={20} className="text-emerald-600"/> Personal Information
             </h2>
             
             <div className="space-y-4">
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
                 <div className="h-10 w-10 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm">
-                  <User size={20} />
+                  <UserIcon size={20} />
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 uppercase font-bold">Display Name</p>
-                  <p className="font-medium text-slate-900">{userData?.displayName || "Student"}</p>
+                  <p className="font-medium text-slate-900">{user?.displayName || "Student"}</p>
                 </div>
               </div>
 
@@ -126,7 +121,6 @@ export default function ProfilePage() {
             </h2>
 
             <div className="grid grid-cols-2 gap-4">
-              {/* Current Balance */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
                 <p className="text-emerald-200 text-sm mb-1">Current Balance</p>
                 <div className="flex items-center gap-2">
@@ -135,7 +129,6 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Total Earned */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
                 <p className="text-emerald-200 text-sm mb-1 flex items-center gap-1">
                   <TrendingUp size={14} />
@@ -145,7 +138,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Buy Credits Button */}
             <Link
               href="/dashboard/buy-credits"
               className="mt-6 w-full bg-white hover:bg-emerald-50 text-emerald-700 font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
@@ -161,19 +153,19 @@ export default function ProfilePage() {
               <CreditCard size={20} className="text-emerald-600"/> Subscription Plan
             </h2>
 
-            <div className={`p-6 rounded-xl border ${isPremium ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="p-6 rounded-xl border bg-slate-50 border-slate-200">
                <div className="flex justify-between items-start">
                  <div>
                    <p className="text-sm text-slate-500 mb-1">Current Plan</p>
-                   <h3 className={`text-2xl font-bold ${isPremium ? 'text-emerald-700' : 'text-slate-700'}`}>
-                     {isPremium ? "Premium Scholar" : "Credit-Based"}
+                   <h3 className="text-2xl font-bold text-slate-700">
+                     Credit-Based
                    </h3>
                  </div>
-                 {isPremium && <Shield className="text-emerald-600" size={32} />}
+                 <Shield className="text-slate-400" size={32} />
                </div>
 
                <div className="mt-4 text-sm text-slate-600">
-                 <p>Purchase credits to unlock practice sessions and mock exams.</p>
+                 <p>Purchase credits to unlock practice sessions and mock exams. Your credits never expire.</p>
                </div>
             </div>
           </div>
@@ -204,7 +196,7 @@ export default function ProfilePage() {
               </div>
 
               <p className="text-xs text-slate-400 mt-6 text-center">
-                Member since {formatDate(user?.metadata?.creationTime)}
+                Member since {formatDate(user?.createdAt)}
               </p>
            </div>
         </div>

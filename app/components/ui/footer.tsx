@@ -16,7 +16,7 @@ export default function Footer() {
         <div className="grid lg:grid-cols-12 gap-16 mb-20">
           <div className="lg:col-span-5">
             <Link href="/" className="text-4xl font-black tracking-tighter uppercase mb-8 block">
-              Parach
+              Sure Prep
             </Link>
             <p className="text-xl text-blue-100/70 leading-relaxed max-w-md italic mb-10">
               "We are a top tech school centre in Ibadan offering Computer courses, 
@@ -103,7 +103,7 @@ export default function Footer() {
         <div className="pt-12 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex flex-col gap-1">
             <p className="font-bold text-xs uppercase tracking-[0.2em] text-blue-100/40">
-              © {new Date().getFullYear()} Parach ICT Academy. Excellence in Technology.
+              © {new Date().getFullYear()} Sure Prep ICT Academy. Excellence in Technology.
             </p>
           </div>
           

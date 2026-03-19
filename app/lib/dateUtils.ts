@@ -1,34 +1,35 @@
-import { Timestamp } from 'firebase/firestore';
 
-export const formatFirebaseDate = (timestamp: any): string => {
-  if (!timestamp) return 'N/A';
+export const formatDisplayDate = (dateValue: any): string => {
+  if (!dateValue) return 'Recent';
 
   try {
-    if (timestamp && typeof timestamp === 'object' && 'seconds' in timestamp) {
-      return new Date(timestamp.seconds * 1000).toLocaleDateString('en-NG', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
+    let dateObj: Date;
+
+
+    if (typeof dateValue === 'string') {
+      dateObj = new Date(dateValue);
+    }
+   
+    else if (typeof dateValue === 'number') {
+      dateObj = new Date(dateValue);
+    }
+    
+    else if (dateValue && typeof dateValue === 'object' && 'seconds' in dateValue) {
+      dateObj = new Date(dateValue.seconds * 1000);
+    }
+    else {
+      return 'N/A';
     }
 
-    if (typeof timestamp === 'number') {
-      return new Date(timestamp).toLocaleDateString('en-NG', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    }
+  
+    if (isNaN(dateObj.getTime())) return 'N/A';
 
-    if (typeof timestamp === 'string') {
-      return new Date(timestamp).toLocaleDateString('en-NG', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    }
-
-    return 'N/A';
+    
+    return dateObj.toLocaleDateString('en-NG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   } catch (error) {
     console.error('Error formatting date:', error);
     return 'N/A';
@@ -36,22 +37,24 @@ export const formatFirebaseDate = (timestamp: any): string => {
 };
 
 
-export const firebaseTimestampToMillis = (timestamp: any): number | null => {
-  if (!timestamp) return null;
+export const dateToMillis = (dateValue: any): number | null => {
+  if (!dateValue) return null;
 
   try {
-    if (timestamp && typeof timestamp === 'object' && 'seconds' in timestamp) {
-      return timestamp.seconds * 1000;
+    if (typeof dateValue === 'string' || typeof dateValue === 'number') {
+      const time = new Date(dateValue).getTime();
+      return isNaN(time) ? null : time;
     }
-    if (typeof timestamp === 'number') {
-      return timestamp;
-    }
-    if (typeof timestamp === 'string') {
-      return new Date(timestamp).getTime();
+ 
+    if (dateValue && typeof dateValue === 'object' && 'seconds' in dateValue) {
+      return dateValue.seconds * 1000;
     }
     return null;
   } catch (error) {
-    console.error('Error converting timestamp:', error);
+    console.error('Error converting date to millis:', error);
     return null;
   }
 };
+
+export const formatFirebaseDate = formatDisplayDate;
+export const firebaseTimestampToMillis = dateToMillis;

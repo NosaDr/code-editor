@@ -1,24 +1,24 @@
 "use client";
 import { useState, useEffect } from "react";
-import {
-  collection, getDocs, doc, updateDoc, deleteDoc,
-  getCountFromServer, where, query, writeBatch
-} from "firebase/firestore";
-import { db } from "@/app/lib/firebase";
+import { useAuth } from "@/app/context/AuthContext";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
 import {
   Loader2, Edit2, Trash2, X, Save, LayoutGrid, AlertTriangle, Palette
 } from "lucide-react";
 
+// API Base URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+
 interface Subject {
   id: string;
   name: string;
   color: string;
-  createdAt?: any;
+  createdAt?: string;
 }
 
 export default function SubjectsManager() {
+  const { user, loading: authLoading } = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,24 +49,42 @@ export default function SubjectsManager() {
     { value: "bg-slate-100 text-slate-600",   label: "Gray",   preview: "bg-slate-100" },
   ];
 
- 
   useEffect(() => {
     const fetchData = async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
       try {
-        const sSnap = await getDocs(collection(db, "subjects"));
-        const sData = sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject));
+        // 1. Fetch Subjects (Matches GET /subjects)
+        const sRes = await fetch(`${API_BASE_URL}/subjects`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const sRaw = await sRes.json();
+        const sData = Array.isArray(sRaw) ? sRaw : (sRaw.data || []);
+        
+        const formatted = sData.map((s: any) => ({
+            id: s.id || s._id,
+            name: s.name,
+            color: s.color,
+            createdAt: s.createdAt
+        }));
 
-        sData.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-        setSubjects(sData);
+        setSubjects(formatted);
 
-      
+        // 2. Fetch question counts per subject
         const counts: Record<string, number> = {};
         await Promise.all(
-          sData.map(async (sub) => {
-            const snap = await getCountFromServer(
-              query(collection(db, "questions"), where("subject", "==", sub.id))
-            );
-            counts[sub.id] = snap.data().count;
+          formatted.map(async (sub: Subject) => {
+            try {
+              // Matches GET /questions with limit 1 to get "total"
+              const qRes = await fetch(`${API_BASE_URL}/questions?subjectId=${sub.id}&limit=1`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const qData = await qRes.json();
+              counts[sub.id] = qData.total || qData.count || 0;
+            } catch (e) {
+              counts[sub.id] = 0;
+            }
           })
         );
         setQuestionCounts(counts);
@@ -76,8 +94,9 @@ export default function SubjectsManager() {
         setLoading(false);
       }
     };
-    fetchData();
-  }, []);
+
+    if (!authLoading) fetchData();
+  }, [authLoading]);
 
   const handleEdit = (subject: Subject) => {
     setEditingSubject(subject);
@@ -87,12 +106,23 @@ export default function SubjectsManager() {
   const handleSaveEdit = async () => {
     if (!editingSubject) return;
     setSaving(true);
+    const token = localStorage.getItem('auth_token');
     try {
-      await updateDoc(doc(db, "subjects", editingSubject.id), {
-        name: editForm.name,
-        color: editForm.color,
-        updatedAt: new Date().toISOString(),
+      // ✅ Matches PATCH /subjects/admin/{id}
+      const response = await fetch(`${API_BASE_URL}/subjects/admin/${editingSubject.id}`, {
+        method: 'PATCH',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          name: editForm.name,
+          color: editForm.color,
+        })
       });
+
+      if (!response.ok) throw new Error("Update failed");
+
       setSubjects(prev =>
         prev.map(s =>
           s.id === editingSubject.id ? { ...s, name: editForm.name, color: editForm.color } : s
@@ -108,7 +138,6 @@ export default function SubjectsManager() {
     }
   };
 
-
   const handleDeleteClick = (subject: Subject) => {
     setConfirmDialog({
       isOpen: true,
@@ -117,33 +146,23 @@ export default function SubjectsManager() {
       questionCount: questionCounts[subject.id] ?? 0,
     });
   };
-
   
   const handleConfirmDelete = async () => {
     const subjectId = confirmDialog.subjectId;
     if (!subjectId) return;
 
     setDeleting(true);
+    const token = localStorage.getItem('auth_token');
     try {
-  
-      const questionsSnap = await getDocs(
-        query(collection(db, "questions"), where("subject", "==", subjectId))
-      );
+      // ✅ Matches DELETE /subjects/admin/{id}
+      // Note: Backend usually handles cascading delete of questions
+      const response = await fetch(`${API_BASE_URL}/subjects/admin/${subjectId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
 
-    
-      const allDocs = questionsSnap.docs;
-      const CHUNK = 499; 
+      if (!response.ok) throw new Error("Deletion failed");
 
-      for (let i = 0; i < allDocs.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        allDocs.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
-        await batch.commit();
-      }
-
-  
-      await deleteDoc(doc(db, "subjects", subjectId));
-
-    
       setSubjects(prev => prev.filter(s => s.id !== subjectId));
       setQuestionCounts(prev => {
         const next = { ...prev };
@@ -151,12 +170,7 @@ export default function SubjectsManager() {
         return next;
       });
 
-      const qCount = confirmDialog.questionCount;
-      toast.success(
-        qCount > 0
-          ? `Subject deleted along with ${qCount} question${qCount !== 1 ? "s" : ""}.`
-          : "Subject deleted successfully."
-      );
+      toast.success("Subject deleted successfully.");
     } catch (error) {
       console.error("Error deleting subject:", error);
       toast.error("Failed to delete subject. Please try again.");
@@ -166,7 +180,7 @@ export default function SubjectsManager() {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="h-screen flex items-center justify-center">
         <Loader2 className="animate-spin text-emerald-600" size={48} />
@@ -204,42 +218,19 @@ export default function SubjectsManager() {
               key={subject.id}
               className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all group"
             >
-              {/* Subject Header */}
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-3 rounded-xl ${subject.color}`}>
                   <LayoutGrid size={24} />
                 </div>
-
-                {/* Action Buttons */}
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => handleEdit(subject)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                    title="Edit Subject"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteClick(subject)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                    title="Delete Subject"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <button onClick={() => handleEdit(subject)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Edit Subject"><Edit2 size={18} /></button>
+                  <button onClick={() => handleDeleteClick(subject)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete Subject"><Trash2 size={18} /></button>
                 </div>
               </div>
-
-              {/* Subject Details */}
-              <h3 className="text-xl font-bold text-slate-900 capitalize mb-1">
-                {subject.name}
-              </h3>
-
-              {/* Question count badge */}
+              <h3 className="text-xl font-bold text-slate-900 capitalize mb-1">{subject.name}</h3>
               <p className="text-sm text-slate-400">
                 {questionCounts[subject.id] ?? 0} question{(questionCounts[subject.id] ?? 0) !== 1 ? "s" : ""}
               </p>
-
-              {/* Subject ID */}
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <span className="text-xs text-slate-400">ID: {subject.id}</span>
               </div>
@@ -252,115 +243,43 @@ export default function SubjectsManager() {
       {editingSubject && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-8">
-
-            {/* Modal Header */}
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-slate-900">Edit Subject</h2>
-              <button
-                onClick={() => setEditingSubject(null)}
-                className="p-2 hover:bg-slate-100 rounded-lg transition"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => setEditingSubject(null)} className="p-2 hover:bg-slate-100 rounded-lg transition"><X size={24} /></button>
             </div>
 
-            {/* Warning if subject has questions */}
             {(questionCounts[editingSubject.id] ?? 0) > 0 && (
               <div className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
                 <AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
                 <div>
                   <p className="text-sm font-bold text-amber-900">Notice</p>
-                  <p className="text-sm text-amber-800 mt-1">
-                    This subject has {questionCounts[editingSubject.id]} question(s).
-                    Changing the name will not affect existing questions.
-                  </p>
+                  <p className="text-sm text-amber-800 mt-1">This subject has {questionCounts[editingSubject.id]} question(s).</p>
                 </div>
               </div>
             )}
 
-            {/* Edit Form */}
             <div className="space-y-6">
-
-              {/* Subject ID */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Subject ID</label>
-                <input
-                  type="text"
-                  value={editingSubject.id}
-                  disabled
-                  className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-500"
-                />
-                <p className="text-xs text-slate-400 mt-1">Cannot be changed</p>
+                <input type="text" value={editingSubject.id} disabled className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-500" />
               </div>
-
-              {/* Subject Name */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Subject Name</label>
-                <input
-                  type="text"
-                  className="w-full p-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  placeholder="e.g., Mathematics, English, Physics"
-                />
+                <input type="text" className="w-full p-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
               </div>
-
-              {/* Color Theme */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                  <Palette size={16} /> Color Theme
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-3 flex items-center gap-2"><Palette size={16} /> Color Theme</label>
                 <div className="grid grid-cols-5 gap-3">
                   {colorOptions.map((colorOption) => (
-                    <button
-                      key={colorOption.value}
-                      type="button"
-                      onClick={() => setEditForm({ ...editForm, color: colorOption.value })}
-                      className={`h-12 rounded-xl border-2 transition-all ${
-                        editForm.color === colorOption.value
-                          ? "border-slate-900 ring-2 ring-slate-900 ring-offset-2"
-                          : "border-slate-200 hover:border-slate-300"
-                      } ${colorOption.preview}`}
-                      title={colorOption.label}
-                    />
+                    <button key={colorOption.value} type="button" onClick={() => setEditForm({ ...editForm, color: colorOption.value })} className={`h-12 rounded-xl border-2 transition-all ${editForm.color === colorOption.value ? "border-slate-900 ring-2 ring-slate-900 ring-offset-2" : "border-slate-200 hover:border-slate-300"} ${colorOption.preview}`} title={colorOption.label} />
                   ))}
                 </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  Selected:{" "}
-                  <span className="font-bold capitalize">
-                    {colorOptions.find((c) => c.value === editForm.color)?.label || "Custom"}
-                  </span>
-                </p>
               </div>
 
-              {/* Preview */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Preview</label>
-                <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-                  <div className={`p-3 rounded-xl inline-flex ${editForm.color}`}>
-                    <LayoutGrid size={24} />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 capitalize mt-3">
-                    {editForm.name || "Subject Name"}
-                  </h3>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
               <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => setEditingSubject(null)}
-                  className="flex-1 px-6 py-3 border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={saving || !editForm.name.trim()}
-                  className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
-                  {saving ? "Saving..." : "Save Changes"}
+                <button onClick={() => setEditingSubject(null)} className="flex-1 px-6 py-3 border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition">Cancel</button>
+                <button onClick={handleSaveEdit} disabled={saving || !editForm.name.trim()} className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition flex items-center justify-center gap-2">
+                  {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />} {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </div>
@@ -372,18 +291,12 @@ export default function SubjectsManager() {
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
         title={`Delete "${confirmDialog.subjectName}"?`}
-        message={
-          confirmDialog.questionCount > 0
-            ? `This will permanently delete the subject AND all ${confirmDialog.questionCount} question${confirmDialog.questionCount !== 1 ? "s" : ""} associated with it.\n\nThis action cannot be undone.`
-            : "Are you sure you want to delete this subject? This action cannot be undone."
-        }
-        confirmText={deleting ? "Deleting…" : `Delete${confirmDialog.questionCount > 0 ? ` & ${confirmDialog.questionCount} Questions` : ""}`}
+        message={`This will permanently delete the subject. Associated questions may also be affected depending on server configuration.`}
+        confirmText={deleting ? "Deleting…" : "Delete Subject"}
         cancelText="Cancel"
         isDangerous
         onConfirm={handleConfirmDelete}
-        onCancel={() =>
-          setConfirmDialog({ isOpen: false, subjectId: null, subjectName: "", questionCount: 0 })
-        }
+        onCancel={() => setConfirmDialog({ isOpen: false, subjectId: null, subjectName: "", questionCount: 0 })}
       />
     </div>
   );

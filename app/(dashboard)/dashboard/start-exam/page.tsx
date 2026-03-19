@@ -2,22 +2,23 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/app/context/AuthContext";
-import { db } from "@/app/lib/firebase";
-import { doc, updateDoc, increment, addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { Loader2, Zap, ShieldCheck, AlertCircle, ArrowLeft, Coins, GraduationCap, BookOpen, Sparkles, School, Award, Briefcase, Globe } from "lucide-react";
 import Link from "next/link";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 export default function StartExamPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, userData } = useAuth();
+  
+  // ✅ Use 'user' and 'refreshUser' from your new AuthContext
+  const { user, loading: authLoading, refreshUser } = useAuth();
   
   const examType = searchParams.get("type");
   const cost = parseInt(searchParams.get("cost") || "0");
   
   const [isDeducting, setIsDeducting] = useState(false);
 
-  // Mapping exam IDs to readable names and details
   const examDetails: Record<string, { 
     name: string; 
     description: string; 
@@ -95,39 +96,60 @@ export default function StartExamPage() {
   const ExamIcon = currentExam.icon;
 
   const handleConfirmStart = async () => {
-    if (!user || !userData) return;
-    if (userData.credits < cost) {
+    if (!user) return;
+    
+    // Check local balance before triggering API
+    if (user.credits < cost) {
       router.push("/dashboard/buy-credits");
       return;
     }
 
     try {
       setIsDeducting(true);
+      const token = localStorage.getItem('auth_token');
 
-      // 1. DEDUCT CREDITS IN FIREBASE
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        credits: increment(-cost)
+      // 1. DEDUCT CREDITS IN BACKEND
+      // Matches POST /users/me/deduct-credits
+      const deductRes = await fetch(`${API_BASE_URL}/users/me/deduct-credits`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ amount: cost }),
       });
+
+      if (!deductRes.ok) throw new Error("Deduction failed");
 
       // 2. LOG THE USAGE
-      await addDoc(collection(db, "creditUsage"), {
-        userId: user.uid,
-        examType: examType,
-        examName: currentExam.name,
-        creditsSpent: cost,
-        date: serverTimestamp(),
+      // Matches POST /credit-usage
+      await fetch(`${API_BASE_URL}/credit-usage`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          examType: examType,
+          examName: currentExam.name,
+          creditsSpent: cost,
+        }),
       });
 
-     
+      // 3. REFRESH USER DATA
+      await refreshUser();
+
+      // 4. REDIRECT
       router.push(`/dashboard/mock?type=${examType}`);
 
     } catch (error) {
       console.error("Failed to start exam:", error);
-      alert("Error processing credits. Please try again.");
+      alert("Error processing credits. Please check your connection and try again.");
       setIsDeducting(false);
     }
   };
+
+  if (authLoading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-emerald-600" /></div>;
 
   if (!examType) {
     return (
@@ -135,17 +157,15 @@ export default function StartExamPage() {
         <div className="text-center py-20">
           <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Invalid Exam Type</h2>
-          <p className="text-slate-500 mb-6">The exam type you selected is not valid.</p>
-          <Link 
-            href="/dashboard/practice"
-            className="inline-block px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition"
-          >
+          <Link href="/dashboard/practice" className="inline-block px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl">
             Back to Practice Centre
           </Link>
         </div>
       </div>
     );
   }
+
+  const currentCredits = user?.credits || 0;
 
   return (
     <div className="max-w-2xl mx-auto py-10 px-4">
@@ -154,9 +174,7 @@ export default function StartExamPage() {
       </Link>
 
       <div className="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
-        {/* Header with Gradient */}
         <div className={`bg-gradient-to-br ${currentExam.gradient} p-8 text-white text-center relative overflow-hidden`}>
-          {/* Decorative glow */}
           <div className="absolute -top-10 -right-10 h-40 w-40 bg-white/10 rounded-full blur-3xl"></div>
           
           <div className="relative z-10">
@@ -166,7 +184,6 @@ export default function StartExamPage() {
             <h1 className="text-2xl font-bold mb-2">{currentExam.name}</h1>
             <p className="text-white/80 max-w-md mx-auto">{currentExam.description}</p>
             
-            {/* Exam Meta Info */}
             <div className="flex items-center justify-center gap-6 mt-6 pt-6 border-t border-white/20">
               {currentExam.subjects && (
                 <div className="text-center">
@@ -188,12 +205,11 @@ export default function StartExamPage() {
 
         <div className="p-8">
           <div className="space-y-6">
-            {/* Credit Breakdown */}
             <div className="bg-slate-50 rounded-2xl p-6 space-y-4">
               <div className="flex justify-between items-center text-slate-600">
                 <span>Current Balance</span>
                 <span className="font-bold flex items-center gap-1">
-                  <Coins size={16} /> {userData?.credits || 0}
+                  <Coins size={16} /> {currentCredits.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between items-center text-red-600">
@@ -205,12 +221,11 @@ export default function StartExamPage() {
               <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-slate-900 font-bold text-lg">
                 <span>Remaining Balance</span>
                 <span className="text-emerald-600 flex items-center gap-1">
-                  <Coins size={20} /> {(userData?.credits || 0) - cost}
+                  <Coins size={20} /> {(currentCredits - cost).toLocaleString()}
                 </span>
               </div>
             </div>
 
-            {/* Exam Instructions */}
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
               <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
                 <ShieldCheck size={18} />
@@ -227,30 +242,20 @@ export default function StartExamPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-600 mt-0.5">•</span>
-                  <span>Your answers are auto-saved as you progress through the exam.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-600 mt-0.5">•</span>
                   <span>Detailed solutions will be provided after submission.</span>
                 </li>
               </ul>
             </div>
 
-            {/* Warning Info */}
             <div className="flex gap-3 p-4 bg-amber-50 rounded-xl border border-amber-100 text-amber-800 text-sm">
               <AlertCircle className="flex-shrink-0 mt-0.5" size={20} />
-              <p>
-                Credits are deducted once you click "Start Exam". 
-                Exiting the exam early will <strong>not refund credits</strong>. 
-                Make sure you're ready before proceeding.
-              </p>
+              <p>Credits are non-refundable once you click "Start Exam". Ensure you are ready.</p>
             </div>
 
-            {/* Action Buttons */}
             <button
               onClick={handleConfirmStart}
-              disabled={isDeducting || (userData?.credits || 0) < cost}
-              className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2 text-lg"
+              disabled={isDeducting || currentCredits < cost}
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 text-lg"
             >
               {isDeducting ? (
                 <>
@@ -265,45 +270,16 @@ export default function StartExamPage() {
               )}
             </button>
             
-            {(userData?.credits || 0) < cost && (
+            {currentCredits < cost && (
               <div className="text-center">
-                <p className="text-red-500 font-medium text-sm mb-3">
-                  Insufficient credits to start this exam.
-                </p>
-                <Link 
-                  href="/dashboard/buy-credits"
-                  className="inline-flex items-center gap-2 px-6 py-2 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition"
-                >
-                  <Zap size={18} />
-                  Buy Credits
+                <p className="text-red-500 font-medium text-sm mb-3">Insufficient credits.</p>
+                <Link href="/dashboard/buy-credits" className="inline-flex items-center gap-2 px-6 py-2 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition">
+                  <Zap size={18} /> Buy Credits
                 </Link>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Additional Tips */}
-      <div className="mt-6 bg-slate-50 rounded-2xl p-6 border border-slate-200">
-        <h3 className="font-bold text-slate-900 mb-3">📚 Pro Tips for Success</h3>
-        <ul className="space-y-2 text-sm text-slate-600">
-          <li className="flex items-start gap-2">
-            <span className="text-emerald-600 font-bold">✓</span>
-            <span>Find a quiet environment free from distractions</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-emerald-600 font-bold">✓</span>
-            <span>Have a pen and paper ready for rough work</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-emerald-600 font-bold">✓</span>
-            <span>Read each question carefully before selecting your answer</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-emerald-600 font-bold">✓</span>
-            <span>Manage your time wisely - don't spend too long on difficult questions</span>
-          </li>
-        </ul>
       </div>
     </div>
   );

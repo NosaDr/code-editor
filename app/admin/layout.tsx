@@ -4,17 +4,15 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2, LayoutDashboard, FileText, Users, LogOut, ShieldCheck, Menu, X, BookOpen, LayoutGrid } from "lucide-react";
 import Link from "next/link";
-import { signOut } from "firebase/auth";
-import { auth } from "@/app/lib/firebase";
 import { toast } from "sonner";
-import AdminSeeder from "./seeder/page";
 
 const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || "")
   .split(",")
   .map(email => email.trim().toLowerCase());
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  // ✅ Use 'logout' from your custom AuthContext
+  const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -28,22 +26,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       return;
     }
 
-    // 🔍 ROBUST CHECK: Convert everything to lowercase and remove spaces
+    // 🔍 ROBUST CHECK: Preserve your email-based authorization logic
     const currentUserEmail = user.email?.toLowerCase().trim() || "";
     const allowedAdmins = ADMIN_EMAILS.map(email => email.toLowerCase().trim());
 
-
-
-    // 2. If logged in but NOT an admin, kick them out
+    // If logged in but NOT in the admin list, redirect to user dashboard
     if (!allowedAdmins.includes(currentUserEmail)) {
-      // 🚨 ALERT THE USER WHY THEY FAILED
-      toast.error(`ACCESS DENIED.\n\nYou are logged in as: ${user.email}\n\nBut the Admin list only allows:\n${ADMIN_EMAILS.join("\n")}`);
-      
+      toast.error(`ACCESS DENIED.\n\nYou are logged in as: ${user.email}\n\nBut the Admin list only allows authorized personnel.`);
       router.push("/dashboard");
       return;
     }
 
-    // 3. Authorized
+    // Authorized
     setIsAuthorized(true);
   }, [user, loading, pathname, router]);
 
@@ -52,8 +46,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [pathname]);
 
   const handleLogout = async () => {
-    await signOut(auth);
-    router.push("/admin/login");
+    try {
+      // ✅ Calls the custom API logout (clears token & state)
+      await logout();
+      router.push("/admin/login");
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
   };
 
   if (pathname === "/admin/login") {
@@ -70,7 +69,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex h-screen bg-slate-100">
-      {/* Mobile Header */}
+      {/* Mobile Header (UI Preserved) */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between px-4 z-30 border-b border-slate-800">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-emerald-600 rounded-lg">
@@ -86,7 +85,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </button>
       </div>
 
-      {/* Overlay for mobile */}
+      {/* Overlay for mobile (UI Preserved) */}
       {sidebarOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/50 z-30 mt-16"
@@ -94,7 +93,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         />
       )}
 
-      {/* Admin Sidebar */}
+      {/* Admin Sidebar (UI Preserved) */}
       <aside
         className={`
           w-64 bg-slate-900 text-slate-300 flex flex-col fixed h-full z-40 transition-transform duration-300 ease-in-out
@@ -124,11 +123,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             label="Content Manager"
             active={pathname.includes("/content")}
           />
-           <NavLink href="/admin/dashboard/questions" icon={<BookOpen size={20}/>} label="Question Bank" active={pathname.includes("/questions")} />
-             <NavLink href="/admin/dashboard/subjects" icon={<LayoutGrid size={20}/>} label="Manage Subjects" active={pathname.includes("/subjects")} />
-
-            <NavLink href="/admin/dashboard/users" icon={<Users size={20} />} label="Users" active={pathname.includes("/users")} />
-          
+          <NavLink 
+            href="/admin/dashboard/questions" 
+            icon={<BookOpen size={20}/>} 
+            label="Question Bank" 
+            active={pathname.includes("/questions")} 
+          />
+          <NavLink 
+            href="/admin/dashboard/subjects" 
+            icon={<LayoutGrid size={20}/>} 
+            label="Manage Subjects" 
+            active={pathname.includes("/subjects")} 
+          />
+          <NavLink 
+            href="/admin/dashboard/users" 
+            icon={<Users size={20} />} 
+            label="Users" 
+            active={pathname.includes("/users")} 
+          />
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -141,7 +153,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main Content Area (UI Preserved) */}
       <main className="flex-1 lg:ml-64 overflow-y-auto mt-16 lg:mt-0">
         <div className="p-4 sm:p-6 lg:p-8">
           {children}

@@ -109,7 +109,7 @@ export default function DemoPage() {
       
       <nav className="fixed w-full z-50 bg-white/80 backdrop-blur-md border-b border-emerald-100">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="text-xl font-bold text-emerald-600 tracking-tight">PARACH</Link>
+          <Link href="/" className="text-xl font-bold text-emerald-600 tracking-tight">Sure Prep</Link>
           <div className="flex gap-4">
              <span className="hidden md:block text-xs font-bold bg-emerald-100 text-emerald-700 px-3 py-2 rounded-full border border-emerald-200">
                DEMO MODE
@@ -132,7 +132,7 @@ export default function DemoPage() {
             <h1 className="text-4xl font-bold text-slate-900 mb-4">Experience the CBT Engine</h1>
             <p className="text-slate-500 text-lg mb-8">
               Take a quick <strong>6-question</strong> test covering English, Math, and Sciences. 
-              Feel the speed and accuracy of the Parach platform.
+              Feel the speed and accuracy of the Sure Prep platform.
             </p>
             <button 
               onClick={() => setStarted(true)}
@@ -199,7 +199,7 @@ export default function DemoPage() {
                        <Lock size={16} className="text-emerald-600" /> Explanation
                     </div>
                     <p className="text-slate-400 blur-sm select-none">
-                       {demoQuestions[currentIndex].explanation} This is why Parach is the best platform for your success.
+                       {demoQuestions[currentIndex].explanation} This is why Sure Prep is the best platform for your success.
                     </p>
                     <div className="absolute inset-0 flex items-center justify-center">
                        <Link href="/register" className="bg-slate-900 text-white text-xs px-4 py-2 rounded-full font-bold shadow-lg hover:scale-105 transition-transform">

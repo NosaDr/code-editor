@@ -1,86 +1,42 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/app/context/AuthContext";
-import { db } from "@/app/lib/firebase";
-import { collection, addDoc, setDoc, doc, serverTimestamp, getDocs, query, writeBatch } from "firebase/firestore";
 import { uploadToCloudinary } from "@/app/lib/imageUpload";
 import { PlusCircle, FileText, LayoutGrid, Loader2, Upload, FileUp, CheckCircle, AlertCircle, Beaker, Palette, Calculator, Globe, Image as ImageIcon, X, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { MathText } from "@/app/components/MathText"; 
 import { fullClean } from "@/app/lib/bulkTextCleaner";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
-
-// TOPIC CONFIGURATION
+// TOPIC CONFIGURATION (Preserved)
 const SUBJECT_TOPICS: Record<string, string[]> = {
-  mathematics: [
-    'Algebra', 'Calculus', 'Trigonometry', 'Statistics & Probability',
-    'Geometry', 'Vectors & Mechanics', 'Number Theory', 'Logarithms'
-  ],
-  physics: [
-    'Mechanics', 'Electricity & Magnetism', 'Waves & Sound', 'Light & Optics',
-    'Heat & Thermodynamics', 'Modern Physics', 'Atomic Structure'
-  ],
-  chemistry: [
-    'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry', 'Chemical Bonding',
-    'Acids & Bases', 'Electrochemistry', 'Periodic Table', 'Stoichiometry'
-  ],
-  biology: [
-    'Cell Biology', 'Genetics & Evolution', 'Ecology', 'Human Anatomy',
-    'Plant Biology', 'Microbiology', 'Reproduction'
-  ],
-  english: [
-    'Oral English', 'Comprehension', 'Grammar', 'Vocabulary',
-    'Literature', 'Essay Writing', 'Lexis & Structure'
-  ],
-  literature: [
-    'Poetry', 'Drama', 'Prose', 'African Literature', 'Literary Devices'
-  ],
-  government: [
-    'Nigerian Government', 'International Relations', 'Political Systems',
-    'Democracy', 'Federalism'
-  ],
-  economics: [
-    'Microeconomics', 'Macroeconomics', 'International Trade',
-    'Money & Banking', 'Development Economics'
-  ],
-  accounting: [
-    'Book Keeping', 'Financial Accounting', 'Cost Accounting', 'Partnership Accounts'
-  ],
-  commerce: [
-    'Trade', 'Banking', 'Insurance', 'Business Organization'
-  ],
+  mathematics: ['Algebra', 'Calculus', 'Trigonometry', 'Statistics & Probability', 'Geometry', 'Vectors & Mechanics', 'Number Theory', 'Logarithms'],
+  physics: ['Mechanics', 'Electricity & Magnetism', 'Waves & Sound', 'Light & Optics', 'Heat & Thermodynamics', 'Modern Physics', 'Atomic Structure'],
+  chemistry: ['Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry', 'Chemical Bonding', 'Acids & Bases', 'Electrochemistry', 'Periodic Table', 'Stoichiometry'],
+  biology: ['Cell Biology', 'Genetics & Evolution', 'Ecology', 'Human Anatomy', 'Plant Biology', 'Microbiology', 'Reproduction'],
+  english: ['Oral English', 'Comprehension', 'Grammar', 'Vocabulary', 'Literature', 'Essay Writing', 'Lexis & Structure'],
+  literature: ['Poetry', 'Drama', 'Prose', 'African Literature', 'Literary Devices'],
+  government: ['Nigerian Government', 'International Relations', 'Political Systems', 'Democracy', 'Federalism'],
+  economics: ['Microeconomics', 'Macroeconomics', 'International Trade', 'Money & Banking', 'Development Economics'],
+  accounting: ['Book Keeping', 'Financial Accounting', 'Cost Accounting', 'Partnership Accounts'],
+  commerce: ['Trade', 'Banking', 'Insurance', 'Business Organization'],
 };
 
-
-
-
-function formatTopicId(topic: string): string {
-  return topic.toLowerCase().replace(/\s+/g, '-').replace(/&/g, 'and');
-}
-
-function getTopicsForSubject(subjectId: string): string[] {
-  return SUBJECT_TOPICS[subjectId.toLowerCase()] || [];
-}
+// Utilities (Preserved)
+function formatTopicId(topic: string): string { return topic.toLowerCase().replace(/\s+/g, '-').replace(/&/g, 'and'); }
+function getTopicsForSubject(subjectId: string): string[] { return SUBJECT_TOPICS[subjectId.toLowerCase()] || []; }
 
 function normalizeInlineMath(raw: string): string {
   return raw
-    // sqrt(x)  →  \sqrt{x}
     .replace(/\bsqrt\(([^)]+)\)/g, (_m, inner) => `\\sqrt{${inner}}`)
-    // frac(a,b) →  \frac{a}{b}
     .replace(/\bfrac\(([^,)]+),([^)]+)\)/g, (_m, a, b) => `\\frac{${a}}{${b}}`)
-    // x^2  →  x^{2}   (only when exponent is >1 char, e.g. x^10 → x^{10})
     .replace(/\^(\d{2,})/g, (_m, exp) => `^{${exp}}`)
-    // plain degree symbol workaround: 90deg → 90°
     .replace(/(\d+)deg\b/gi, (_m, n) => `${n}^{\\circ}`)
-    // >=  →  \geq ,  <=  →  \leq
     .replace(/\b>=/g, "\\geq")
     .replace(/\b<=/g, "\\leq")
-    // infinity  →  \infty
     .replace(/\binfinity\b/gi, "\\infty")
-    // pi  →  \pi  (only as standalone word, not inside another word)
     .replace(/\bpi\b/g, "\\pi")
-    // alpha, beta, gamma, theta, omega
     .replace(/\balpha\b/g, "\\alpha")
     .replace(/\bbeta\b/g, "\\beta")
     .replace(/\bgamma\b/g, "\\gamma")
@@ -89,16 +45,12 @@ function normalizeInlineMath(raw: string): string {
     .replace(/\blambda\b/g, "\\lambda")
     .replace(/\bsigma\b/g, "\\sigma")
     .replace(/\bdelta\b/g, "\\delta")
-    // times / multiply sign
     .replace(/\btimes\b/g, "\\times")
     .replace(/\bdiv\b/g, "\\div");
 }
 
-
 function processMathInString(text: string): string {
-  return text.replace(/\$([^$]+)\$/g, (_match, inner) => {
-    return `$${normalizeInlineMath(inner)}$`;
-  });
+  return text.replace(/\$([^$]+)\$/g, (_match, inner) => `$${normalizeInlineMath(inner)}$`);
 }
 
 export default function ContentManager() {
@@ -123,7 +75,6 @@ export default function ContentManager() {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   
-  // Image states for single question
   const [questionImage, setQuestionImage] = useState<File | null>(null);
   const [questionImagePreview, setQuestionImagePreview] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +84,6 @@ export default function ContentManager() {
   const [parsedQuestions, setParsedQuestions] = useState<any[]>([]);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
   
-  // Bulk image upload states
   const [bulkImages, setBulkImages] = useState<{[key: number]: File}>({});
   const [bulkImagePreviews, setBulkImagePreviews] = useState<{[key: number]: string}>({});
 
@@ -141,14 +91,25 @@ export default function ContentManager() {
 
   useEffect(() => {
     const fetchSubjects = async () => {
+      const token = localStorage.getItem('auth_token');
       try {
-        const q = query(collection(db, "subjects"));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => doc.data());
-        setSubjects(data);
-        if (data.length > 0) {
-          setSelectedSubject(data[0].id);
-          setBulkSubject(data[0].id);
+        const response = await fetch(`${API_BASE_URL}/subjects`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        const subjectsArray = Array.isArray(data) ? data : (data.data || []);
+        
+        const formatted = subjectsArray.map((s: any) => ({
+            id: s.id || s._id,
+            name: s.name,
+            color: s.color,
+            category: s.category
+        }));
+
+        setSubjects(formatted);
+        if (formatted.length > 0) {
+          setSelectedSubject(formatted[0].id);
+          setBulkSubject(formatted[0].id);
         }
       } catch (e) {
         console.error("Error loading subjects", e);
@@ -192,31 +153,41 @@ export default function ContentManager() {
     setBulkImagePreviews(newPreviews);
   };
 
-  const uploadImage = async (file: File, questionId: string): Promise<string> => {
+  const uploadImage = async (file: File): Promise<string> => {
     try {
       return await uploadToCloudinary(file, 'questions');
     } catch (error: any) {
       console.error('Image upload error:', error);
-      throw new Error('Failed to upload image. Please try again.');
+      throw new Error('Failed to upload image.');
     }
   };
 
   const handleCreateSubject = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    const token = localStorage.getItem('auth_token');
     try {
-      const id = subName.toLowerCase().replace(/\s+/g, '-');
-      await setDoc(doc(db, "subjects", id), {
-        id, name: subName, color: subColor, category: subCategory,
-        createdAt: serverTimestamp()
+      // ✅ Matches POST /subjects/admin
+      const response = await fetch(`${API_BASE_URL}/subjects/admin`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          name: subName,
+          color: subColor,
+          category: subCategory
+        })
       });
-      toast.success(`Subject "${subName}" created in ${subCategory} category!`);
+
+      if (!response.ok) throw new Error("Failed to create subject");
+      const newSub = await response.json();
+
+      toast.success(`Subject "${subName}" created!`);
       setSubName("");
-      setSubjects(prev => [...prev, { id, name: subName, color: subColor, category: subCategory }]);
-      setSelectedSubject(id);
-      setBulkSubject(id);
+      setSubjects(prev => [...prev, { id: newSub.id || newSub._id, name: subName, color: subColor, category: subCategory }]);
     } catch (e) {
-      console.error(e);
       toast.error("Error creating subject");
     } finally {
       setLoading(false);
@@ -226,161 +197,147 @@ export default function ContentManager() {
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    const token = localStorage.getItem('auth_token');
     try {
       if (!selectedSubject) throw new Error("Please select a subject");
 
       let imageURL = "";
       if (questionImage) {
         toast.info("Uploading image...");
-        imageURL = await uploadImage(questionImage, `question_${Date.now()}`);
-        toast.success("Image uploaded!");
+        imageURL = await uploadImage(questionImage);
       }
 
       const topicIds = selectedTopics.map(formatTopicId);
 
-      // Process math notation before saving
-      await addDoc(collection(db, "questions"), {
-        subject: selectedSubject,
-        questionText: processMathInString(qText),
-        options: options.map(processMathInString),
-        correctOption: Number(correctOpt),
-        explanation: processMathInString(explanation),
-        imageURL: imageURL || null,
-        topics: topicIds,
-        difficulty: selectedDifficulty,
-        createdAt: serverTimestamp(),
-        createdBy: user?.email
+      // ✅ Matches POST /questions/admin
+      const response = await fetch(`${API_BASE_URL}/questions/admin`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          subjectId: selectedSubject,
+          questionText: processMathInString(qText),
+          options: options.map(processMathInString),
+          correctOption: Number(correctOpt),
+          explanation: processMathInString(explanation),
+          imageURL: imageURL || null,
+          topics: topicIds,
+          difficulty: selectedDifficulty
+        })
       });
+
+      if (!response.ok) throw new Error("Failed to add question");
 
       toast.success("Question Added!");
       setQText(""); setOptions(["", "", "", ""]); setExplanation("");
       setCorrectOpt(0); setQuestionImage(null); setQuestionImagePreview("");
-      setSelectedTopics([]); setSelectedDifficulty('medium');
+      setSelectedTopics([]);
     } catch (e: any) {
-      console.error(e);
       toast.error(e.message || "Error adding question");
     } finally {
       setLoading(false);
     }
   };
 
-const handleParseBulk = () => {
-  setBulkErrors([]);
-  setParsedQuestions([]);
-  setShowCleaned(false);
-  setCleanedPreview("");
+  const handleParseBulk = () => {
+    setBulkErrors([]);
+    setParsedQuestions([]);
+    setShowCleaned(false);
+    setCleanedPreview("");
 
-  if (!bulkText.trim()) {
-    setBulkErrors(["Please paste your questions first."]);
-    return;
-  }
+    if (!bulkText.trim()) {
+      setBulkErrors(["Please paste your questions first."]);
+      return;
+    }
 
-  const cleaned = fullClean(bulkText);
-  setCleanedPreview(cleaned);
+    const cleaned = fullClean(bulkText);
+    setCleanedPreview(cleaned);
 
-  const lines = cleaned.split("\n");
-  const questions: any[] = [];
-  const errors: string[] = [];
+    const lines = cleaned.split("\n");
+    const questions: any[] = [];
+    const errors: string[] = [];
 
-  let currentQuestion: any = null;
-  let questionCount = 0;
+    let currentQuestion: any = null;
+    let questionCount = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const trimmed = raw.trim();
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      if (/^CHAPTER\s+\d+:/i.test(trimmed)) continue;
 
-    // Skip blank lines and chapter headers
-    if (!trimmed) continue;
-    if (/^CHAPTER\s+\d+:/i.test(trimmed)) continue;
+      if (/^\d{1,3}[\).]\s*\S/.test(trimmed)) {
+        if (currentQuestion) {
+          const v = validateQuestion(currentQuestion, questionCount);
+          if (v.valid) questions.push(currentQuestion);
+          else errors.push(...v.errors);
+        }
+        questionCount++;
+        currentQuestion = {
+          questionText: trimmed.replace(/^\d{1,3}[\).]\s*/, "").trim(),
+          options: [],
+          correctOption: -1,
+          explanation: "",
+        };
+        continue;
+      }
 
-    // ── New question: starts with "1)" or "1." ──────────────────────────
-    if (/^\d{1,3}[\).]\s*\S/.test(trimmed)) {
-      // Save the previous question first
+      if (/^[A-D][).]\s*.+/i.test(trimmed)) {
+        if (!currentQuestion) continue;
+        const optText = trimmed.replace(/^[A-D][).]\s*/i, "").trim();
+        currentQuestion.options.push(optText);
+        continue;
+      }
+
+      if (/^ANSWER\s*:\s*[A-D]/i.test(trimmed)) {
+        if (!currentQuestion) continue;
+        const letter = trimmed.match(/[A-D]/i)?.[0].toUpperCase();
+        currentQuestion.correctOption = letter ? letter.charCodeAt(0) - 65 : -1;
+        continue;
+      }
+
+      if (/^EXPLANATION\s*:\s*/i.test(trimmed)) {
+        if (!currentQuestion) continue;
+        currentQuestion.explanation = trimmed.replace(/^EXPLANATION\s*:\s*/i, "").trim();
+        continue;
+      }
+
       if (currentQuestion) {
-        const v = validateQuestion(currentQuestion, questionCount);
-        if (v.valid) questions.push(currentQuestion);
-        else errors.push(...v.errors);
+        if (currentQuestion.correctOption === -1 && currentQuestion.options.length === 0) {
+          currentQuestion.questionText += " " + trimmed;
+        } else if (currentQuestion.correctOption !== -1) {
+          currentQuestion.explanation += " " + trimmed;
+        }
       }
-      questionCount++;
-      currentQuestion = {
-        questionText: trimmed.replace(/^\d{1,3}[\).]\s*/, "").trim(),
-        options: [],
-        correctOption: -1,
-        explanation: "",
-      };
-      continue;
     }
 
-    // ── Option line: A) / A. / A) (with or without space) ───────────────
-    if (/^[A-D][).]\s*.+/i.test(trimmed)) {
-      if (!currentQuestion) {
-        errors.push(`Line ${i + 1}: Option found without a question — "${trimmed.slice(0, 40)}"`);
-        continue;
-      }
-      const optText = trimmed.replace(/^[A-D][).]\s*/i, "").trim();
-      currentQuestion.options.push(optText);
-      continue;
-    }
-
-    // ── Answer line ───────────────────────────────────────────────────────
-    if (/^ANSWER\s*:\s*[A-D]/i.test(trimmed)) {
-      if (!currentQuestion) {
-        errors.push(`Line ${i + 1}: ANSWER found without a question.`);
-        continue;
-      }
-      const letter = trimmed.match(/[A-D]/i)?.[0].toUpperCase();
-      currentQuestion.correctOption = letter ? letter.charCodeAt(0) - 65 : -1;
-      continue;
-    }
-
-    // ── Explanation line ──────────────────────────────────────────────────
-    if (/^EXPLANATION\s*:\s*/i.test(trimmed)) {
-      if (!currentQuestion) continue;
-      currentQuestion.explanation = trimmed.replace(/^EXPLANATION\s*:\s*/i, "").trim();
-      continue;
-    }
-
-    // ── Continuation line: append to last field ───────────────────────────
-    // (handles multi-line question text or explanation)
     if (currentQuestion) {
-      if (currentQuestion.correctOption === -1 && currentQuestion.options.length === 0) {
-        // Still in question text
-        currentQuestion.questionText += " " + trimmed;
-      } else if (currentQuestion.correctOption !== -1) {
-        // After answer — append to explanation
-        currentQuestion.explanation += " " + trimmed;
-      }
-      // Lines between options and answer are ignored (usually subscript noise)
+      const v = validateQuestion(currentQuestion, questionCount);
+      if (v.valid) questions.push(currentQuestion);
+      else errors.push(...v.errors);
     }
-  }
 
-  // Don't forget the last question
-  if (currentQuestion) {
-    const v = validateQuestion(currentQuestion, questionCount);
-    if (v.valid) questions.push(currentQuestion);
-    else errors.push(...v.errors);
-  }
-
-  setParsedQuestions(questions);
-  setBulkErrors(errors);
-  if (cleaned !== bulkText) setShowCleaned(true);
-};
-
-
+    setParsedQuestions(questions);
+    setBulkErrors(errors);
+    if (cleaned !== bulkText) setShowCleaned(true);
+  };
 
   const validateQuestion = (q: any, lineNum: number) => {
     const errors: string[] = [];
     if (!q.questionText) errors.push(`Question ${lineNum}: Missing question text.`);
-    if (q.options.length !== 4) errors.push(`Question ${lineNum}: Must have exactly 4 options (A, B, C, D). Found ${q.options.length}.`);
-    if (q.correctOption === -1) errors.push(`Question ${lineNum}: Missing answer or invalid answer format.`);
+    if (q.options.length !== 4) errors.push(`Question ${lineNum}: Must have 4 options.`);
+    if (q.correctOption === -1) errors.push(`Question ${lineNum}: Missing answer.`);
     return { valid: errors.length === 0, errors };
   };
 
   const handleBulkUpload = async () => {
-    if (parsedQuestions.length === 0) { toast.error("No valid questions to upload. Please parse your text first."); return; }
+    if (parsedQuestions.length === 0) { toast.error("No valid questions to upload."); return; }
     if (!bulkSubject) { toast.error("Please select a subject."); return; }
 
     setLoading(true);
+    const token = localStorage.getItem('auth_token');
     try {
       const imageCount = Object.keys(bulkImages).length;
       if (imageCount > 0) toast.info(`Uploading ${imageCount} image(s)...`);
@@ -389,10 +346,9 @@ const handleParseBulk = () => {
         parsedQuestions.map(async (_, idx) => {
           if (bulkImages[idx]) {
             try {
-              const url = await uploadImage(bulkImages[idx], `bulk_${Date.now()}_${idx}`);
+              const url = await uploadImage(bulkImages[idx]);
               return { index: idx, url };
             } catch {
-              toast.error(`Failed to upload image for question ${idx + 1}`);
               return { index: idx, url: null };
             }
           }
@@ -402,31 +358,33 @@ const handleParseBulk = () => {
 
       const imageURLs: {[key: number]: string | null} = {};
       imageResults.forEach(r => { imageURLs[r.index] = r.url; });
-      if (imageCount > 0) toast.success("Images uploaded!");
 
-      const batch = writeBatch(db);
-      parsedQuestions.forEach((q, idx) => {
-        const docRef = doc(collection(db, "questions"));
-        batch.set(docRef, {
-          subject: bulkSubject,
-          questionText: q.questionText,   // already processed by handleParseBulk
-          options: q.options,             // already processed
-          correctOption: q.correctOption,
-          explanation: q.explanation || "",
-          imageURL: imageURLs[idx] || null,
-          topics: [],
-          difficulty: 'medium',
-          createdAt: serverTimestamp(),
-          createdBy: user?.email
-        });
+      // ✅ Matches POST /questions/admin/upload
+      const payload = parsedQuestions.map((q, idx) => ({
+        subjectId: bulkSubject,
+        questionText: q.questionText,
+        options: q.options,
+        correctOption: q.correctOption,
+        explanation: q.explanation || "",
+        imageURL: imageURLs[idx] || null,
+        difficulty: 'medium',
+        topics: []
+      }));
+
+      const response = await fetch(`${API_BASE_URL}/questions/admin/upload`, {
+          method: 'POST',
+          headers: { 
+              'Content-Type': 'application/json', 
+              'Authorization': `Bearer ${token}` 
+          },
+          body: JSON.stringify({ questions: payload })
       });
 
-      await batch.commit();
+      if (!response.ok) throw new Error("Bulk upload failed");
+
       toast.success(`Success! ${parsedQuestions.length} questions uploaded.`);
-      setBulkText(""); setParsedQuestions([]); setBulkErrors([]);
-      setBulkImages({}); setBulkImagePreviews({});
+      setBulkText(""); setParsedQuestions([]); setBulkImages({}); setBulkImagePreviews({});
     } catch (e: any) {
-      console.error(e);
       toast.error(e.message || "Error uploading questions");
     } finally {
       setLoading(false);
@@ -449,7 +407,6 @@ const handleParseBulk = () => {
 
       <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
 
-        {/* ── CREATE SUBJECT (unchanged) ── */}
         {activeTab === 'subject' && (
           <form onSubmit={handleCreateSubject} className="space-y-6 max-w-2xl">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><LayoutGrid className="text-emerald-600"/> New Exam Subject</h2>
@@ -496,7 +453,6 @@ const handleParseBulk = () => {
           </form>
         )}
 
-        {/* ── ADD SINGLE QUESTION (unchanged structure, math now processed on save) ── */}
         {activeTab === 'question' && (
           <form onSubmit={handleAddQuestion} className="space-y-6">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><FileText className="text-emerald-600"/> Add New Question</h2>
@@ -507,10 +463,7 @@ const handleParseBulk = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Question Text
-                <span className="ml-2 text-xs font-normal text-slate-500">Wrap formulas in $…$ e.g. <code className="bg-slate-100 px-1 rounded">$x^2 + 2x$</code></span>
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Question Text</label>
               <textarea rows={3} required className="w-full p-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-sm" value={qText} onChange={e => setQText(e.target.value)}/>
             </div>
             <div>
@@ -535,7 +488,7 @@ const handleParseBulk = () => {
             {availableTopics.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Tag size={16}/>Topics <span className="text-slate-500 text-xs font-normal">(Select all that apply)</span>
+                  <Tag size={16}/>Topics
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {availableTopics.map((topic) => {
@@ -584,230 +537,72 @@ const handleParseBulk = () => {
           </form>
         )}
 
-        {/* ── BULK UPLOAD ── */}
-       
-{activeTab === "bulk" && (
-  <div className="space-y-6">
-    <div className="flex items-start justify-between">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <FileUp className="text-emerald-600" /> Bulk Question Upload
-        </h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Paste questions directly — even from PDFs. The cleaner fixes formatting
-          artifacts automatically before parsing.
-        </p>
-      </div>
-    </div>
-
-    {/* Format Instructions */}
-    <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
-      <p className="text-sm font-bold text-blue-900 mb-2">📋 Required Format:</p>
-      <pre className="text-xs text-blue-800 font-mono bg-white p-3 rounded border border-blue-200 overflow-x-auto">
-{`1) What is the capital of Nigeria?
-A) Lagos
-B) Abuja
-C) Kano
-D) Port Harcourt
-ANSWER: B
-EXPLANATION: Abuja has been the capital since 1991`}
-      </pre>
-      <p className="text-xs text-blue-700 mt-2">
-        ✓ Paste directly from PDFs — duplicated variables, frac() notation, and
-        subscript bleed are fixed automatically
-        <br />
-        ✓ Multiple chapters in one paste are supported
-        <br />
-        ✓ ANSWER: must include the letter (A, B, C, or D)
-        <br />
-        ✓ EXPLANATION: is optional
-      </p>
-    </div>
-
-    {/* Subject Selection */}
-    <div>
-      <label className="block text-sm font-medium text-slate-700 mb-2">
-        Select Subject
-      </label>
-      <select
-        className="w-full p-3 border border-slate-300 rounded-xl outline-none capitalize focus:ring-2 focus:ring-emerald-500"
-        value={bulkSubject}
-        onChange={(e) => setBulkSubject(e.target.value)}
-      >
-        {subjects.map((sub) => (
-          <option key={sub.id} value={sub.id}>
-            {sub.name} {sub.category && `(${sub.category})`}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    {/* Paste Questions */}
-    <div>
-      <label className="block text-sm font-medium text-slate-700 mb-2">
-        Paste Questions
-      </label>
-      <textarea
-        rows={15}
-        className="w-full p-4 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-sm"
-        placeholder="Paste your questions here — PDF copy-paste is fine, the cleaner will fix formatting artifacts..."
-        value={bulkText}
-        onChange={(e) => {
-          setBulkText(e.target.value);
-          setShowCleaned(false); // reset cleaned notice on new paste
-        }}
-      />
-    </div>
-
-    <button
-      onClick={handleParseBulk}
-      className="w-full px-6 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition"
-    >
-      Clean & Parse Questions
-    </button>
-
-
-    {showCleaned && (
-      <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-bold text-amber-900 flex items-center gap-2">
-            ✨ Formatting artifacts were automatically cleaned before parsing
-          </p>
-          <button
-            onClick={() => setShowCleaned((v) => !v)}
-            className="text-xs text-amber-700 underline"
-          >
-            {showCleaned ? "Hide cleaned text" : "Show cleaned text"}
-          </button>
-        </div>
-        <details>
-          <summary className="text-xs text-amber-700 cursor-pointer">
-            View cleaned text used for parsing
-          </summary>
-          <pre className="text-xs text-amber-800 font-mono bg-white p-3 rounded border border-amber-200 mt-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
-            {cleanedPreview}
-          </pre>
-        </details>
-      </div>
-    )}
-
-    {/* Errors */}
-    {bulkErrors.length > 0 && (
-      <div className="bg-red-50 border border-red-200 p-4 rounded-xl">
-        <p className="text-sm font-bold text-red-900 mb-2 flex items-center gap-2">
-          <AlertCircle size={16} />
-          {bulkErrors.length} Error(s) Found:
-        </p>
-        <ul className="text-sm text-red-800 space-y-1">
-          {bulkErrors.map((err, idx) => (
-            <li key={idx}>• {err}</li>
-          ))}
-        </ul>
-        <p className="text-xs text-red-700 mt-3 border-t border-red-200 pt-2">
-          💡 Tip: Check the "View cleaned text" above to see what the parser
-          actually received. The most common remaining issue is options that
-          didn't get a blank line between them.
-        </p>
-      </div>
-    )}
-
-    {/* Preview with Image Upload */}
-    {parsedQuestions.length > 0 && (
-      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
-        <p className="text-sm font-bold text-emerald-900 mb-3 flex items-center gap-2">
-          <CheckCircle size={16} />
-          {parsedQuestions.length} Valid Question(s) Ready
-        </p>
-
-        <div className="space-y-4 max-h-96 overflow-y-auto">
-          {parsedQuestions.map((q, idx) => (
-            <div
-              key={idx}
-              className="bg-white p-4 rounded-lg border border-emerald-200"
-            >
-              <div className="flex items-start justify-between mb-2">
-                <p className="font-bold text-slate-900 flex-1">
-                  {idx + 1}. {q.questionText}
-                </p>
-
-                {/* Image Upload for this question */}
-                <div className="ml-4">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleBulkImageSelect(idx, e)}
-                    className="hidden"
-                    id={`bulk-image-${idx}`}
-                  />
-                  <label
-                    htmlFor={`bulk-image-${idx}`}
-                    className="cursor-pointer px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-200 transition flex items-center gap-1"
-                  >
-                    <ImageIcon size={14} />
-                    {bulkImages[idx] ? "Change" : "Add"} Image
-                  </label>
-                </div>
-              </div>
-
-              {/* Image Preview */}
-              {bulkImagePreviews[idx] && (
-                <div className="mb-3 relative inline-block">
-                  <img
-                    src={bulkImagePreviews[idx]}
-                    alt={`Question ${idx + 1}`}
-                    className="w-40 h-40 object-cover rounded-lg border-2 border-blue-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeBulkImage(idx)}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                {q.options.map((opt: string, optIdx: number) => (
-                  <p
-                    key={optIdx}
-                    className={`text-sm p-2 rounded ${
-                      optIdx === q.correctOption
-                        ? "bg-emerald-100 text-emerald-900 font-bold"
-                        : "text-slate-600"
-                    }`}
-                  >
-                    {String.fromCharCode(65 + optIdx)}) {opt}
-                  </p>
-                ))}
-              </div>
-              {q.explanation && (
-                <p className="text-xs text-blue-700 bg-blue-50 p-2 rounded mt-2">
-                  💡 {q.explanation}
-                </p>
-              )}
+        {activeTab === "bulk" && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><FileUp className="text-emerald-600" /> Bulk Question Upload</h2>
             </div>
-          ))}
-        </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Select Subject</label>
+              <select className="w-full p-3 border border-slate-300 rounded-xl outline-none capitalize focus:ring-2 focus:ring-emerald-500" value={bulkSubject} onChange={(e) => setBulkSubject(e.target.value)}>
+                {subjects.map((sub) => <option key={sub.id} value={sub.id}>{sub.name} {sub.category && `(${sub.category})`}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Paste Questions</label>
+              <textarea rows={15} className="w-full p-4 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-sm" placeholder="Paste your questions here..." value={bulkText} onChange={(e) => { setBulkText(e.target.value); setShowCleaned(false); }}/>
+            </div>
+            <button onClick={handleParseBulk} className="w-full px-6 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition">Clean & Parse Questions</button>
 
-        <button
-          onClick={handleBulkUpload}
-          disabled={loading}
-          className="w-full px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition mt-4 flex items-center justify-center gap-2"
-        >
-          {loading ? <Loader2 className="animate-spin" /> : <Upload size={20} />}
-          {loading
-            ? "Uploading..."
-            : `Upload ${parsedQuestions.length} Questions ${
-                Object.keys(bulkImages).length > 0
-                  ? `(${Object.keys(bulkImages).length} with images)`
-                  : ""
-              }`}
-        </button>
-      </div>
-    )}
-  </div>
-)}
+            {showCleaned && (
+              <details className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                <summary className="text-sm font-bold text-amber-900 cursor-pointer">✨ Formatting cleaned. View result</summary>
+                <pre className="text-xs text-amber-800 font-mono bg-white p-3 rounded mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap">{cleanedPreview}</pre>
+              </details>
+            )}
+
+            {bulkErrors.length > 0 && (
+              <div className="bg-red-50 border border-red-200 p-4 rounded-xl">
+                <p className="text-sm font-bold text-red-900 flex items-center gap-2"><AlertCircle size={16} />{bulkErrors.length} Error(s) Found:</p>
+                <ul className="text-sm text-red-800 space-y-1 mt-2">{bulkErrors.map((err, idx) => (<li key={idx}>• {err}</li>))}</ul>
+              </div>
+            )}
+
+            {parsedQuestions.length > 0 && (
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
+                <p className="text-sm font-bold text-emerald-900 mb-3 flex items-center gap-2"><CheckCircle size={16} />{parsedQuestions.length} Questions Ready</p>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {parsedQuestions.map((q, idx) => (
+                    <div key={idx} className="bg-white p-4 rounded-lg border border-emerald-200">
+                      <div className="flex items-start justify-between mb-2">
+                        <p className="font-bold text-slate-900 flex-1">{idx + 1}. {q.questionText}</p>
+                        <div className="ml-4">
+                          <input type="file" accept="image/*" onChange={(e) => handleBulkImageSelect(idx, e)} className="hidden" id={`bulk-image-${idx}`} />
+                          <label htmlFor={`bulk-image-${idx}`} className="cursor-pointer px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition flex items-center gap-1"><ImageIcon size={14} />{bulkImages[idx] ? "Change" : "Add"} Image</label>
+                        </div>
+                      </div>
+                      {bulkImagePreviews[idx] && (
+                        <div className="mb-3 relative inline-block">
+                          <img src={bulkImagePreviews[idx]} alt="Preview" className="w-40 h-40 object-cover rounded-lg border-2 border-blue-200" />
+                          <button type="button" onClick={() => removeBulkImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X size={14} /></button>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {q.options.map((opt: string, optIdx: number) => (
+                          <p key={optIdx} className={`text-sm p-2 rounded ${optIdx === q.correctOption ? "bg-emerald-100 text-emerald-900 font-bold" : "text-slate-600"}`}>{String.fromCharCode(65 + optIdx)}) {opt}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={handleBulkUpload} disabled={loading} className="w-full px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition mt-4 flex items-center justify-center gap-2">
+                  {loading ? <Loader2 className="animate-spin" /> : <Upload size={20} />}
+                  Upload {parsedQuestions.length} Questions
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

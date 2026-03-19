@@ -1,50 +1,82 @@
 "use client";
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/app/lib/firebase";
 import { useAuth } from "@/app/context/AuthContext";
 import { useParams, useRouter } from "next/navigation";
-import { CheckCircle, XCircle, ArrowLeft, Lock, Zap } from "lucide-react";
+import { CheckCircle, XCircle, ArrowLeft, Lock, Zap, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { formatFirebaseDate } from "@/app/lib/dateUtils";
+
+// API Base URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 export default function ExamResultReview() {
   const { id } = useParams();
-  const { userData } = useAuth();
+  // ✅ Use 'user' from your new AuthContext
+  const { user, loading: authLoading } = useAuth();
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  const isPremium = userData?.subscriptionStatus === 'premium';
+  // ✅ Adapt to your backend's user roles/status logic
+  const isPremium = user?.credits && user.credits > 0; // Or user?.subscriptionStatus === 'premium'
 
   useEffect(() => {
     const fetchResult = async () => {
       if (!id) return;
+      const token = localStorage.getItem('auth_token');
+      
       try {
-        const docRef = doc(db, "testResults", id as string);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const cleanResult: any = {
-            subject: data.subject || 'Unknown',
-            score: data.score || 0,
-            totalQuestions: data.totalQuestions || 0,
-            percentage: data.percentage || 0,
-            history: data.history || [],
-            date: data.date ? formatFirebaseDate(data.date) : 'Recent'
-          };
-          setResult(cleanResult);
-        }
+        // ✅ Matches GET /test-results/my/{id}
+        const response = await fetch(`${API_BASE_URL}/test-results/my/${id}`, {
+          headers: { 
+            'Authorization': `Bearer ${token}` 
+          }
+        });
+
+        if (!response.ok) throw new Error("Failed to fetch result");
+
+        const data = await response.json();
+        
+        // Map backend data to your existing state structure
+        const cleanResult: any = {
+          subject: data.subject || data.subjectName || 'Unknown',
+          score: data.score || 0,
+          totalQuestions: data.totalQuestions || 0,
+          percentage: data.percentage || 0,
+          history: data.history || [], // Ensure your backend sends the 'history' array
+          date: data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'Recent'
+        };
+        
+        setResult(cleanResult);
       } catch (error) {
         console.error("Error fetching result:", error);
       } finally {
         setLoading(false);
       }
     };
-    fetchResult();
-  }, [id]);
 
-  if (loading) return <div className="p-10 text-center">Loading review...</div>;
-  if (!result) return <div className="p-10 text-center">Result not found.</div>;
+    if (!authLoading) {
+      fetchResult();
+    }
+  }, [id, authLoading]);
+
+  if (loading || authLoading) {
+    return (
+      <div className="p-20 flex flex-col items-center justify-center gap-4">
+        <Loader2 className="animate-spin text-emerald-600" size={40} />
+        <p className="text-slate-500">Loading result review...</p>
+      </div>
+    );
+  }
+
+  if (!result) {
+    return (
+      <div className="p-20 text-center">
+        <h2 className="text-xl font-bold text-slate-800">Result not found</h2>
+        <Link href="/dashboard" className="text-emerald-600 hover:underline mt-4 inline-block">
+          Return to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
@@ -55,7 +87,9 @@ export default function ExamResultReview() {
           <Link href="/dashboard" className="text-slate-500 hover:text-emerald-600 flex items-center gap-2 mb-2 text-sm font-bold">
             <ArrowLeft size={16} /> Back to Dashboard
           </Link>
-          <h1 className="text-2xl font-bold text-slate-900 capitalize">{result.subject.replace(/-/g, ' ')} Review</h1>
+          <h1 className="text-2xl font-bold text-slate-900 capitalize">
+            {result.subject.replace(/-/g, ' ')} Review
+          </h1>
           <p className="text-slate-500">
             You scored <span className="font-bold text-emerald-600">{result.score}/{result.totalQuestions}</span>
           </p>
@@ -69,7 +103,7 @@ export default function ExamResultReview() {
       <div className="space-y-6">
         {result.history?.map((q: any, index: number) => {
           const isCorrect = q.selectedOption === q.correctOption;
-          const isSkipped = q.selectedOption === -1;
+          const isSkipped = q.selectedOption === -1 || q.selectedOption === null;
 
           return (
             <div key={index} className={`bg-white p-6 rounded-2xl border-2 ${isCorrect ? 'border-emerald-100' : 'border-red-50'}`}>
@@ -106,8 +140,9 @@ export default function ExamResultReview() {
                 })}
               </div>
 
-              {/* Explanation Section (Premium Feature) */}
+              {/* Explanation Section */}
               <div className="pl-12">
+                {/* Adjusting the premium check to your actual data logic */}
                 {isPremium ? (
                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                     <h4 className="font-bold text-blue-800 text-sm mb-1 flex items-center gap-2">
@@ -121,10 +156,10 @@ export default function ExamResultReview() {
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-slate-500 text-sm">
                       <Lock size={16} />
-                      <span>Explanation hidden (Premium only)</span>
+                      <span>Explanation hidden (Join Premium to unlock)</span>
                     </div>
-                    <Link href="/dashboard/upgrade" className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-700">
-                      Unlock
+                    <Link href="/dashboard/buy-credits" className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-700">
+                      Get Credits
                     </Link>
                   </div>
                 )}

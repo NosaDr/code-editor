@@ -1,8 +1,6 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
-import { db } from "@/app/lib/firebase";
 import { useAuth } from "@/app/context/AuthContext";
 import {
   BookOpen, Zap, Timer, Loader2,
@@ -10,6 +8,8 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+// Base URL for API
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 interface Subject {
   id: string;
@@ -18,6 +18,7 @@ interface Subject {
   category: 'sciences' | 'arts' | 'commercial' | 'general';
 }
 
+// Config for simulations (Keep this hardcoded for UI/Design purposes)
 const ALL_EXAM_TYPES = [
   {
     id: "jamb",
@@ -134,91 +135,90 @@ const ALL_EXAM_TYPES = [
 ];
 
 export default function PracticeSelection() {
-  const { userData, user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const userExamCategory = userData?.examCategory || "senior";
-  const userCredits = userData?.credits || 0;
   
-  
-  const [userSpecialization, setUserSpecialization] = useState<string | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Derived values from context
+  const userExamCategory = user?.examCategory || "senior";
+  const userCredits = user?.credits || 0;
+  const userSpecialization = user?.specialization || 'general';
 
   const filteredExams = ALL_EXAM_TYPES.filter(exam => 
     exam.categories.includes(userExamCategory)
   );
 
-  const needsSpecialization = userExamCategory === 'senior' && !userSpecialization;
+  const needsSpecialization = userExamCategory === 'senior' && (!userSpecialization || userSpecialization === 'general');
 
   useEffect(() => {
-    const fetchUserDataAndSubjects = async () => {
-      if (!user) return;
-      
-      try {
-
-        
-      
-        const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        
-        if (userDocSnap.exists()) {
-          const freshUserData = userDocSnap.data();
-          const specialization = freshUserData.specialization || null;
-          
-       
-          
-          setUserSpecialization(specialization);
-          
-      
-          const allSubjectsSnapshot = await getDocs(collection(db, "subjects"));
-          const allSubjects = allSubjectsSnapshot.docs.map((docSnap) => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              name: (data.name as string) || '',
-              color: (data.color as string) || 'bg-blue-100 text-blue-600',
-              category: (data.category as 'sciences' | 'arts' | 'commercial' | 'general') || 'general'
-            };
-          });
-          
-   
-          
-          let filteredSubjects: Subject[] = [];
-          
-          if (!specialization || specialization === 'general') {
-            filteredSubjects = allSubjects;
-   
-          } else {
-            filteredSubjects = allSubjects.filter(subject => {
-              const matches = subject.category === specialization || subject.category === 'general';
-      
-              return matches;
-            });
-     
-          }
-          
-          // Sort
-          filteredSubjects.sort((a, b) => {
-            if (a.category === 'general' && b.category !== 'general') return -1;
-            if (a.category !== 'general' && b.category === 'general') return 1;
-            return a.name.localeCompare(b.name);
-          });
-
-          
-          setSubjects(filteredSubjects);
-        }
-        
-      } catch (error) {
-        console.error("❌ Error:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+   const fetchSubjects = async () => {
+  const token = localStorage.getItem('auth_token');
+  if (!token) return;
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/subjects`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
     
-    if (user) {
-      fetchUserDataAndSubjects();
+    const rawData = await response.json();
+
+    // 1. 🛡️ DEBUG: See exactly what the server is sending
+    console.log("API RAW DATA:", rawData);
+
+    // 2. 🛡️ DATA FINDER: Ensure we find the array inside the response
+    let subjectsArray = [];
+    
+    if (Array.isArray(rawData)) {
+      // Format: [ {...}, {...} ]
+      subjectsArray = rawData;
+    } else if (rawData.results && Array.isArray(rawData.results)) {
+      // Format: { results: [ {...} ] }
+      subjectsArray = rawData.results;
+    } else if (rawData.data && Array.isArray(rawData.data)) {
+      // Format: { data: [ {...} ] }
+      subjectsArray = rawData.data;
+    } else if (rawData.subjects && Array.isArray(rawData.subjects)) {
+      // Format: { subjects: [ {...} ] }
+      subjectsArray = rawData.subjects;
     }
-  }, [user]);
+
+    // 3. Map the data into the format the UI expects
+    let filtered: Subject[] = subjectsArray.map((s: any) => ({
+        id: s.id || s._id,
+        name: s.name || "Unnamed Subject",
+        category: s.category || 'general',
+        color: s.color || 'bg-blue-100 text-blue-600'
+    }));
+
+    // 4. Apply filters based on specialization
+    if (userSpecialization && userSpecialization !== 'general') {
+        filtered = filtered.filter(s => 
+          s.category === userSpecialization || s.category === 'general'
+        );
+    }
+
+    // 5. Sort the list
+    filtered.sort((a, b) => {
+      if (a.category === 'general' && b.category !== 'general') return -1;
+      if (a.category !== 'general' && b.category === 'general') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    setSubjects(filtered);
+    
+  } catch (error) {
+    console.error("❌ Error fetching subjects:", error);
+  } finally {
+    setLoading(false);
+  }
+};
+    
+    if (!authLoading && user) {
+      fetchSubjects();
+    }
+  }, [user, authLoading, userSpecialization]);
 
   const handleExamClick = (exam: (typeof ALL_EXAM_TYPES)[0]) => {
     if (userCredits < exam.creditCost) {
@@ -230,7 +230,6 @@ export default function PracticeSelection() {
 
   const handleSubjectClick = (subjectId: string) => {
     const subjectCost = 5;
-    
     if (userCredits < subjectCost) {
       router.push("/dashboard/buy-credits");
     } else {
@@ -238,7 +237,7 @@ export default function PracticeSelection() {
     }
   };
 
-  if (loading)
+  if (authLoading || loading)
     return (
       <div className="p-10 flex justify-center">
         <Loader2 className="animate-spin text-emerald-600" />
@@ -247,85 +246,46 @@ export default function PracticeSelection() {
 
   const getCategoryInfo = () => {
     switch(userExamCategory) {
-      case 'senior':
-        return { label: 'Senior Secondary', color: 'text-emerald-600', icon: GraduationCap };
-      case 'junior':
-        return { label: 'Junior Secondary', color: 'text-blue-600', icon: School };
-      case 'professional':
-        return { label: 'Professional/Career', color: 'text-purple-600', icon: Briefcase };
-      default:
-        return { label: 'All Exams', color: 'text-slate-600', icon: BookOpen };
+      case 'senior': return { label: 'Senior Secondary', color: 'text-emerald-600', icon: GraduationCap };
+      case 'junior': return { label: 'Junior Secondary', color: 'text-blue-600', icon: School };
+      case 'professional': return { label: 'Professional/Career', color: 'text-purple-600', icon: Briefcase };
+      default: return { label: 'All Exams', color: 'text-slate-600', icon: BookOpen };
     }
   };
 
   const categoryInfo = getCategoryInfo();
   const CategoryIcon = categoryInfo.icon;
 
-  const getSpecializationDisplay = () => {
-    if (!userSpecialization || userSpecialization === 'general') return null;
-    
-    const specMap: Record<string, string> = {
-      'sciences': 'Sciences',
-      'arts': 'Arts',
-      'commercial': 'Commercial'
-    };
-    
-    return specMap[userSpecialization] || userSpecialization;
-  };
-
-  const specializationDisplay = getSpecializationDisplay();
-
   return (
     <div className="max-w-6xl mx-auto space-y-10">
-      {/* Specialization Setup Banner */}
+      {/* Specialization Banner */}
       {needsSpecialization && (
         <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-2xl p-6 shadow-lg">
           <div className="flex items-start gap-4">
-            <div className="bg-white/20 p-3 rounded-xl">
-              <AlertCircle size={24} />
-            </div>
+            <div className="bg-white/20 p-3 rounded-xl"><AlertCircle size={24} /></div>
             <div className="flex-1">
               <h3 className="text-xl font-bold mb-2">Complete Your Profile Setup</h3>
-              <p className="text-white/90 mb-4">
-                Choose your subject specialization (Sciences, Arts, or Commercial) to see only the subjects relevant to you.
-              </p>
-              <Link 
-                href="/dashboard/settings"
-                className="inline-flex items-center gap-2 bg-white text-orange-600 px-6 py-3 rounded-xl font-bold hover:bg-orange-50 transition"
-              >
-                <Settings size={18} />
-                Set Specialization Now
+              <p className="text-white/90 mb-4">Choose your specialization to see relevant subjects.</p>
+              <Link href="/dashboard/settings" className="inline-flex items-center gap-2 bg-white text-orange-600 px-6 py-3 rounded-xl font-bold hover:bg-orange-50 transition">
+                <Settings size={18} /> Set Specialization Now
               </Link>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header with Credits Display */}
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Practice Centre</h1>
           <div className="flex items-center gap-2 mt-2">
-            <p className="text-slate-500">
-              Showing exams for:
-            </p>
             <span className={`flex items-center gap-1 font-bold ${categoryInfo.color}`}>
-              <CategoryIcon size={16} />
-              {categoryInfo.label}
+              <CategoryIcon size={16} /> {categoryInfo.label}
             </span>
-            {specializationDisplay && (
-              <>
-                <span className="text-slate-300">•</span>
-                <span className="text-slate-700 font-semibold">
-                  {specializationDisplay} Track
-                </span>
-              </>
-            )}
-            {!specializationDisplay && userExamCategory === 'senior' && (
-              <>
-                <span className="text-slate-300">•</span>
-                <span className="text-amber-600 font-semibold">All Subjects</span>
-              </>
+            {userSpecialization !== 'general' && (
+              <span className="text-slate-700 font-semibold capitalize">
+                • {userSpecialization} Track
+              </span>
             )}
           </div>
         </div>
@@ -334,205 +294,62 @@ export default function PracticeSelection() {
           <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-6 py-3 rounded-xl flex items-center gap-3 shadow-lg">
             <Coins size={24} className="text-emerald-200" />
             <div>
-              <p className="text-xs text-emerald-200">Your Balance</p>
+              <p className="text-xs text-emerald-200">Balance</p>
               <p className="text-2xl font-bold">{userCredits}</p>
             </div>
           </div>
-
-          <Link 
-            href="/dashboard/buy-credits"
-            className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-bold transition flex items-center gap-2 shadow-lg"
-          >
-            <Zap size={18} />
-            Buy Credits
+          <Link href="/dashboard/buy-credits" className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-bold transition flex items-center gap-2 shadow-lg">
+            <Zap size={18} /> Buy Credits
           </Link>
         </div>
       </div>
 
-      {/* Low Credits Warning */}
-      {userCredits < 10 && (
-        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-amber-100 p-3 rounded-xl">
-              <Coins className="text-amber-600" size={24} />
-            </div>
-            <div>
-              <p className="font-bold text-amber-900">Low Credit Balance</p>
-              <p className="text-sm text-amber-700">You have {userCredits} credits remaining. Purchase more to continue practicing.</p>
-            </div>
-          </div>
-          <Link 
-            href="/dashboard/buy-credits"
-            className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg font-bold transition"
-          >
-            Top Up
-          </Link>
-        </div>
-      )}
-
-      {/* Exam Type Simulations */}
+      {/* Simulations */}
       <section>
         <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <Timer size={20} className="text-slate-400" />
-          Full Exam Simulations
+          <Timer size={20} className="text-slate-400" /> Full Exam Simulations
         </h2>
-
-        {filteredExams.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredExams.map((exam) => {
-              const Icon = exam.icon;
-              const canAfford = userCredits >= exam.creditCost;
-
-              return (
-                <div
-                  key={exam.id}
-                  onClick={() => handleExamClick(exam)}
-                  className={`
-                    relative overflow-hidden bg-gradient-to-br ${exam.gradient}
-                    rounded-2xl p-6 cursor-pointer group border ${exam.borderColor}
-                    transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl
-                    ${!canAfford ? 'opacity-75' : ''}
-                  `}
-                >
-                  <div
-                    className={`absolute -top-8 -right-8 h-40 w-40 ${exam.glowColor} rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity`}
-                  />
-
-                  <div className="relative z-10 flex flex-col gap-4">
-                    <div className="flex items-start justify-between">
-                      <div className={`p-2.5 rounded-xl bg-white/10 ${exam.textColor}`}>
-                        <Icon size={22} />
-                      </div>
-
-                      <div className="flex items-center gap-1 bg-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-full">
-                        <Coins size={12} />
-                        {exam.creditCost}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span
-                        className={`text-[10px] font-bold tracking-widest uppercase ${exam.subTextColor} mb-1 block`}
-                      >
-                        {exam.badge}
-                      </span>
-                      <h3 className={`text-xl font-bold ${exam.textColor}`}>{exam.label}</h3>
-                      <p className={`text-sm mt-1 leading-relaxed ${exam.subTextColor}`}>
-                        {exam.description}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-2 border-t border-white/10">
-                      <span className={`text-xs flex items-center gap-1 ${exam.subTextColor}`}>
-                        <Timer size={11} /> {exam.duration}
-                      </span>
-                      <span className={`text-xs flex items-center gap-1 ${exam.subTextColor}`}>
-                        <BookOpen size={11} /> {exam.questions}
-                      </span>
-                      <span
-                        className={`ml-auto text-xs font-bold flex items-center gap-1 ${exam.textColor} opacity-0 group-hover:opacity-100 transition-opacity`}
-                      >
-                        {canAfford ? "Start" : "Top Up"}
-                        <ChevronRight size={13} />
-                      </span>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredExams.map((exam) => {
+            const Icon = exam.icon;
+            const canAfford = userCredits >= exam.creditCost;
+            return (
+              <div key={exam.id} onClick={() => handleExamClick(exam)} className={`relative overflow-hidden bg-gradient-to-br ${exam.gradient} rounded-2xl p-6 cursor-pointer group border ${exam.borderColor} transition-all hover:scale-[1.02] hover:shadow-2xl ${!canAfford ? 'opacity-75' : ''}`}>
+                <div className="relative z-10 flex flex-col gap-4">
+                  <div className="flex items-start justify-between">
+                    <div className="p-2.5 rounded-xl bg-white/10 text-white"><Icon size={22} /></div>
+                    <div className="flex items-center gap-1 bg-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-full"><Coins size={12} /> {exam.creditCost}</div>
+                  </div>
+                  <div>
+                    <span className={`text-[10px] font-bold tracking-widest uppercase ${exam.subTextColor} mb-1 block`}>{exam.badge}</span>
+                    <h3 className="text-xl font-bold text-white">{exam.label}</h3>
+                    <p className={`text-sm mt-1 leading-relaxed ${exam.subTextColor}`}>{exam.description}</p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-            <p className="text-slate-500">No exam simulations available for your category.</p>
-          </div>
-        )}
+              </div>
+            );
+          })}
+        </div>
       </section>
 
-      {/* Subject Practice */}
+      {/* Subjects */}
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <BookOpen size={20} className="text-slate-400" /> Subject Practice
-            <span className="text-sm text-slate-500 font-normal">(5 credits per session)</span>
-          </h3>
-          {specializationDisplay && (
-            <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-medium">
-              Showing {specializationDisplay} + General subjects
-            </span>
-          )}
-        </div>
-
+        <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <BookOpen size={20} className="text-slate-400" /> Subject Practice
+        </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {subjects.length > 0 ? (
-            subjects.map((sub) => {
-              const canAfford = userCredits >= 5;
-              
-              return (
-                <button
-                  key={sub.id}
-                  onClick={() => handleSubjectClick(sub.id)}
-                  className="group bg-white border border-slate-200 p-6 rounded-2xl hover:shadow-xl hover:border-emerald-500 transition-all duration-300 transform hover:-translate-y-1 relative overflow-hidden text-left"
-                >
-                  <div className="flex items-start justify-between mb-4 relative z-10">
-                    <div className={`p-3 rounded-xl ${sub.color || "bg-blue-100 text-blue-600"}`}>
-                      <BookOpen size={24} />
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-1 bg-slate-100 text-slate-700 text-xs font-bold px-3 py-1 rounded-full">
-                        <Coins size={12} />
-                        5
-                      </div>
-                      {sub.category === 'general' && (
-                        <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
-                          General
-                        </span>
-                      )}
-                      {sub.category !== 'general' && (
-                        <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold capitalize">
-                          {sub.category}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="relative z-10">
-                    <h3 className="text-xl font-bold text-slate-900 group-hover:text-emerald-600 transition-colors capitalize">
-                      {sub.name}
-                    </h3>
-                    <p className="text-slate-500 text-sm mt-1">
-                      {canAfford ? "Click to start practice session" : "Insufficient credits - top up to continue"}
-                    </p>
-                    <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-end">
-                      <span className={`${canAfford ? 'text-emerald-600' : 'text-amber-600'} font-bold text-sm flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity`}>
-                        {canAfford ? "Start" : "Buy Credits"} <Zap size={14} />
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          ) : (
-            <div className="col-span-3 text-center py-10 text-slate-500 bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
-              <p>No subjects found for your specialization.</p>
-              <p className="text-sm mt-1">Please contact admin or change your specialization in settings.</p>
-            </div>
-          )}
+          {subjects.map((sub) => (
+            <button key={sub.id} onClick={() => handleSubjectClick(sub.id)} className="group bg-white border border-slate-200 p-6 rounded-2xl hover:shadow-xl hover:border-emerald-500 transition-all text-left">
+              <div className="flex items-start justify-between mb-4">
+                <div className={`p-3 rounded-xl ${sub.color}`}><BookOpen size={24} /></div>
+                <div className="flex items-center gap-1 bg-slate-100 text-slate-700 text-xs font-bold px-3 py-1 rounded-full"><Coins size={12} /> 5</div>
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 group-hover:text-emerald-600 capitalize">{sub.name}</h3>
+              <p className="text-slate-500 text-sm mt-1">{sub.category === 'general' ? 'Core Subject' : `${sub.category} elective`}</p>
+            </button>
+          ))}
         </div>
       </section>
-
-      {/* Settings Link */}
-      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 text-center">
-        <p className="text-slate-600 mb-3">
-          Need to change your specialization or exam category?
-        </p>
-        <Link 
-          href="/dashboard/settings" 
-          className="inline-flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
-        >
-          <Settings size={18} />
-          Update Settings
-        </Link>
-      </div>
     </div>
   );
 }

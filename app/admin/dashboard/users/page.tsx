@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy, doc, updateDoc, increment, deleteDoc } from "firebase/firestore";
-import { db } from "@/app/lib/firebase";
 import { Users, Search, Coins, Plus, Loader2, X, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner"; 
+import { apiClient } from "@/app/lib/api/apiClient";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -23,14 +24,17 @@ export default function AdminUsers() {
     userName: null
   });
 
+  // ✅ Fetch Users from API (Matches GET /users/admin)
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const q = query(collection(db, "users"), orderBy("credits", "desc"));
-        const snap = await getDocs(q);
-        setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const response: any = await apiClient.get('/users/admin?limit=100');
+        // Handle array response or paginated object
+        const data = Array.isArray(response) ? response : (response.data || response.results || []);
+        setUsers(data);
       } catch (e) {
         console.error("Error fetching users", e);
+        toast.error("Failed to load users from server.");
       } finally {
         setLoading(false);
       }
@@ -38,52 +42,52 @@ export default function AdminUsers() {
     fetchUsers();
   }, []);
 
-  // Open the confirmation modal
   const openDeleteModal = (userId: string, userName: string) => {
-    setConfirmDialog({
-      isOpen: true,
-      userId,
-      userName
-    });
+    setConfirmDialog({ isOpen: true, userId, userName });
   };
 
-  // Close the confirmation modal
   const closeDeleteModal = () => {
     setConfirmDialog({ isOpen: false, userId: null, userName: null });
   };
 
-  // The actual deletion logic
+  // ✅ Delete User (Matches standard admin DELETE pattern)
   const executeDelete = async () => {
     if (!confirmDialog.userId) return;
 
     setUpdating(true);
     try {
-      await deleteDoc(doc(db, "users", confirmDialog.userId));
+      // Note: Assuming standard DELETE endpoint based on admin patterns
+      await apiClient.delete(`/users/admin/${confirmDialog.userId}`);
       
-      setUsers(prev => prev.filter(u => u.id !== confirmDialog.userId));
-      
-      if (selectedUser?.id === confirmDialog.userId) setSelectedUser(null);
+      setUsers(prev => prev.filter(u => (u.id || u._id) !== confirmDialog.userId));
+      if (selectedUser && (selectedUser.id || selectedUser._id) === confirmDialog.userId) {
+        setSelectedUser(null);
+      }
       
       toast.success("User deleted successfully");
       closeDeleteModal();
     } catch (e) {
       console.error("Delete error:", e);
-      toast.error("Failed to delete user.");
+      toast.error("Failed to delete user. Check server permissions.");
     } finally {
       setUpdating(false);
     }
   };
 
+  // ✅ Add Credits (Matches PATCH /users/admin/{id}/credits)
   const handleAddCredits = async (u: any, amount: number) => {
+    const userId = u.id || u._id;
     setUpdating(true);
     try {
-      await updateDoc(doc(db, "users", u.id), {
-        credits: increment(amount),
-        totalCreditsEarned: increment(amount > 0 ? amount : 0)
-      });
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, credits: (x.credits || 0) + amount } : x));
-      if (selectedUser?.id === u.id) setSelectedUser({ ...selectedUser, credits: (selectedUser.credits || 0) + amount });
-      toast.success("Credits updated");
+      await apiClient.patch(`/users/admin/${userId}/credits`, { amount });
+      
+      setUsers(prev => prev.map(x => (x.id || x._id) === userId ? { ...x, credits: (x.credits || 0) + amount } : x));
+      
+      if (selectedUser && (selectedUser.id || selectedUser._id) === userId) {
+        setSelectedUser({ ...selectedUser, credits: (selectedUser.credits || 0) + amount });
+      }
+      
+      toast.success("Credits updated successfully");
     } catch (e) {
       toast.error("Failed to update credits");
     } finally {
@@ -137,7 +141,7 @@ export default function AdminUsers() {
                     <td colSpan={4} className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-emerald-600" /></td>
                 </tr>
             ) : displayed.map(u => (
-              <tr key={u.id} className="hover:bg-slate-50 group transition">
+              <tr key={u.id || u._id} className="hover:bg-slate-50 group transition">
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500">
@@ -166,7 +170,7 @@ export default function AdminUsers() {
                         Manage
                     </button>
                     <button 
-                        onClick={() => openDeleteModal(u.id, u.displayName || u.email)}
+                        onClick={() => openDeleteModal(u.id || u._id, u.displayName || u.email)}
                         className="p-2 text-slate-300 hover:text-red-600 transition"
                     >
                         <Trash2 size={16} />
@@ -215,7 +219,7 @@ export default function AdminUsers() {
                 <div className="pt-6 border-t border-slate-100">
                     <p className="text-sm font-bold text-slate-700 mb-3">Danger Zone</p>
                     <button 
-                        onClick={() => openDeleteModal(selectedUser.id, selectedUser.displayName || selectedUser.email)}
+                        onClick={() => openDeleteModal(selectedUser.id || selectedUser._id, selectedUser.displayName || selectedUser.email)}
                         disabled={updating}
                         className="w-full flex items-center justify-center gap-2 py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold hover:bg-red-600 hover:text-white transition disabled:opacity-50"
                     >

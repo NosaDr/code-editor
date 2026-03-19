@@ -1,15 +1,17 @@
 "use client";
 import { useState } from "react";
-import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "firebase/auth";
-import { auth, db } from "@/app/lib/firebase";
-import { doc, setDoc, updateDoc, increment, addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, CheckCircle, Zap, Shield, Star, Lock, GraduationCap, Briefcase, School, Coins, TrendingUp, Beaker, Palette, Calculator, Mail, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+ 
+
 
 type ExamCategory = "senior" | "junior" | "professional";
 type Specialization = "sciences" | "arts" | "commercial" | "general";
+
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL 
 
 const EXAM_CATEGORIES = [
   {
@@ -80,12 +82,12 @@ const SPECIALIZATIONS = [
 
 const STARTER_CREDIT_PACKAGES = [
   {
-    id: 'starter-free',
-    name: 'Start Free',
-    credits: 0,
-    price: 0,
-    bonus: 0,
-    description: 'Get started with 0 credits. Purchase more anytime.',
+    id: 'starter-Base',
+    name: 'Base Pack',
+    credits: 50,
+    price: 1000,
+    bonus: 10,
+    description: 'Test the waters whit this plan',
     isFree: true,
   },
   {
@@ -108,7 +110,6 @@ const STARTER_CREDIT_PACKAGES = [
     isFree: false,
   }
 ];
-
 export default function RegisterOnboarding() {
   const [step, setStep] = useState<'register' | 'specialization' | 'verify' | 'plan'>('register');
   
@@ -120,8 +121,10 @@ export default function RegisterOnboarding() {
   const [loading, setLoading] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(STARTER_CREDIT_PACKAGES[1]);
   const [resendingEmail, setResendingEmail] = useState(false);
+  const [otp, setOtp] = useState("");
   
-  const [createdUser, setCreatedUser] = useState<any>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
   
   const router = useRouter();
 
@@ -141,280 +144,289 @@ export default function RegisterOnboarding() {
     }
   };
 
- // Add this improved error handling to your existing registration file
-
-// Replace the handleRegister function with this version:
-
-const handleRegister = async (e?: React.FormEvent) => {
-  if (e) e.preventDefault();
-  
-  if (!examCategory) {
-    toast.error("Please select your exam category");
-    return;
-  }
-
-  const selectedCategory = EXAM_CATEGORIES.find(cat => cat.id === examCategory);
-  if (selectedCategory?.hasSpecialization && !specialization) {
-    toast.error("Please select your subject specialization");
-    return;
-  }
-  
-  setLoading(true);
-
-  try {
-    // 1. Create user account
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    // 2. Update profile
-    await updateProfile(user, { displayName: name });
-
-    // 3. Send verification email with improved error handling
-    let emailSent = false;
-    try {
-      const actionCodeSettings = {
-        url: `${window.location.origin}/dashboard`,
-        handleCodeInApp: false,
-      };
-      
-      await sendEmailVerification(user, actionCodeSettings);
-      emailSent = true;
-      toast.success("Verification email sent! Check your inbox.");
-    } catch (emailError: any) {
-      console.error("Email verification error:", emailError);
-      
-      // Show specific error messages
-      if (emailError.code === "auth/invalid-email") {
-        toast.error("Invalid email address format");
-      } else if (emailError.code === "auth/user-disabled") {
-        toast.error("This account has been disabled");
-      } else if (emailError.code === "auth/too-many-requests") {
-        toast.error("Too many requests. Please try again later.");
-      } else {
-        // Still create account but warn about email
-        toast.warning("Account created but verification email failed. You can resend it from the next page.");
-      }
-    }
-
-    // 4. Create user document
-    await setDoc(doc(db, "users", user.uid), {
-      uid: user.uid,
-      email: user.email,
-      displayName: name,
-      examCategory: examCategory as ExamCategory,
-      specialization: specialization || 'general',
-      subscriptionStatus: "free",
-      credits: 0,
-      totalCreditsEarned: 0,
-      emailVerified: false,
-      verificationEmailSent: emailSent, // Track if email was sent
-      createdAt: new Date().toISOString(),
-    });
-
-    setCreatedUser(user);
-    setLoading(false);
-    setStep('verify');
-
-  } catch (error: any) {
-    console.error("Registration error:", error);
+ 
+  const handleRegister = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     
-    // Detailed error logging
-   
-    
-    if (error.code === "auth/email-already-in-use") {
-      toast.error("This email is already registered. Please log in.");
-    } else if (error.code === "auth/weak-password") {
-      toast.error("Password is too weak. Use at least 6 characters.");
-    } else if (error.code === "auth/invalid-email") {
-      toast.error("Invalid email address.");
-    } else if (error.code === "auth/operation-not-allowed") {
-      toast.error("Email/password sign-in is not enabled. Please contact support.");
-    } else {
-      toast.error("Registration failed: " + error.message);
-    }
-    setLoading(false);
-  }
-};
-
-// Replace the handleResendVerification function with this version:
-
-const handleResendVerification = async () => {
-  if (!createdUser) {
-    toast.error("No user found. Please try registering again.");
-    return;
-  }
-  
-  setResendingEmail(true);
-
-  try {
-    // Force reload user to get latest state
-    await createdUser.reload();
-    
-    // Check if already verified
-    if (createdUser.emailVerified) {
-      toast.success("Email already verified!");
-      await updateDoc(doc(db, "users", createdUser.uid), {
-        emailVerified: true,
-      });
-      setStep('plan');
-      setResendingEmail(false);
+    if (!examCategory) {
+      toast.error("Please select your exam category");
       return;
     }
 
-
-    const actionCodeSettings = {
-      url: `${window.location.origin}/dashboard`,
-      handleCodeInApp: false,
-    };
-    
-
-    await sendEmailVerification(createdUser, actionCodeSettings);
-
-    await updateDoc(doc(db, "users", createdUser.uid), {
-      lastVerificationEmailSent: new Date().toISOString(),
-      verificationEmailResendCount: increment(1),
-    });
-    
-    toast.success("Verification email sent! Check your inbox and spam folder.");
-    
-  } catch (error: any) {
-    console.error("Resend error:", error);
-
-    
-    if (error.code === "auth/too-many-requests") {
-      toast.error("Too many requests. Please wait 5 minutes before trying again.");
-    } else if (error.code === "auth/invalid-action-code") {
-      toast.error("Verification session expired. Please log in and request a new verification email.");
-    } else if (error.code === "auth/user-disabled") {
-      toast.error("This account has been disabled. Please contact support.");
-    } else if (error.code === "auth/user-not-found") {
-      toast.error("User not found. Please try registering again.");
-    } else {
-      toast.error("Failed to send email. Please check Firebase configuration or try again later.");
+    const selectedCategory = EXAM_CATEGORIES.find(cat => cat.id === examCategory);
+    if (selectedCategory?.hasSpecialization && !specialization) {
+      toast.error("Please select your subject specialization");
+      return;
     }
+    
+    setLoading(true);
+
+    try {
+      // Call your API registration endpoint
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          displayName: name,
+          examCategory: examCategory as ExamCategory,
+          specialization: specialization || 'general',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Registration failed');
+      }
+
+      // Store user ID for verification step
+      setUserId(data.user.id || data.userId);
+
+      await fetch(`${API_BASE_URL}/auth/send-verification-otp`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email }),
+});
+
+setStep('verify');
+      
+      // If API returns verification token or link
+      if (data.verificationToken) {
+        setVerificationToken(data.verificationToken);
+      }
+
+      toast.success("Account created! Please verify your email.");
+      setLoading(false);
+      setStep('verify');
+
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      
+      // Handle specific errors
+      if (error.message.includes("email already exists") || error.message.includes("already registered")) {
+        toast.error("This email is already registered. Please log in.");
+      } else if (error.message.includes("weak password")) {
+        toast.error("Password is too weak. Use at least 6 characters.");
+      } else if (error.message.includes("invalid email")) {
+        toast.error("Invalid email address.");
+      } else {
+        toast.error(error.message || "Registration failed. Please try again.");
+      }
+      setLoading(false);
+    }
+  };
+
+
+const handleResendVerification = async () => {
+  setResendingEmail(true);
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/send-verification-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }), // Backend needs the email to send OTP
+    });
+
+    if (!response.ok) throw new Error('Failed to send OTP');
+    
+    toast.success("OTP sent to your email!");
+  } catch (error) {
+    toast.error("Failed to send OTP. Please try again.");
   } finally {
     setResendingEmail(false);
   }
 };
 
-
-
-const handleCheckVerification = async () => {
-  if (!createdUser) {
-    toast.error("No user found. Please try registering again.");
+// ✅ VERIFY OTP (Updated from handleCheckVerification)
+const handleVerifyOTP = async () => {
+  if (otp.length < 4) {
+    toast.error("Please enter the full OTP code");
     return;
   }
   
   setLoading(true);
-  
   try {
+    const response = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp }), // Matches VerifyEmailDto
+    });
 
-    await createdUser.reload();
-    
-    if (createdUser.emailVerified) {
-     
-      await updateDoc(doc(db, "users", createdUser.uid), {
-        emailVerified: true,
-        emailVerifiedAt: new Date().toISOString(),
-      });
-      
-      toast.success("Email verified successfully! 🎉");
-      setStep('plan');
-    } else {
-      toast.error("Email not verified yet. Please check your inbox and click the verification link first.");
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Invalid OTP code');
     }
+    
+    toast.success("Email verified successfully! 🎉");
+    setStep('plan');
   } catch (error: any) {
-    console.error("Verification check error:", error);
-
-    
-    if (error.code === "auth/user-token-expired") {
-      toast.error("Session expired. Please log in and request a new verification email.");
-    } else {
-      toast.error("Failed to check verification status. Please try again.");
-    }
+    toast.error(error.message);
   } finally {
     setLoading(false);
   }
 };
+  // ✅ CHECK VERIFICATION STATUS
+  const handleCheckVerification = async () => {
+    if (!userId) {
+      toast.error("No user found. Please try registering again.");
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/check-verification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId, email }),
+      });
 
-const handlePurchaseCredits = async () => {
-  if (!createdUser) return;
+      const data = await response.json();
 
-  if (selectedPackage.isFree) {
-    handleFreePlan();
-    return;
-  }
+      if (!response.ok) {
+        throw new Error(data.message || 'Verification check failed');
+      }
+      
+      if (data.emailVerified || data.verified) {
+        toast.success("Email verified successfully! 🎉");
+        setStep('plan');
+      } else {
+        toast.error("Email not verified yet. Please check your inbox and click the verification link first.");
+      }
+    } catch (error: any) {
+      console.error("Verification check error:", error);
+      toast.error(error.message || "Failed to check verification status. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  setLoading(true);
+  // ✅ PURCHASE CREDITS
+  const handlePurchaseCredits = async () => {
+    if (!userId) {
+      toast.error("User session not found. Please try again.");
+      return;
+    }
 
-  try {
-    const PaystackPop = (await import("@paystack/inline-js")).default;
-    const paystack = new PaystackPop();
+    if (selectedPackage.isFree) {
+      handleFreePlan();
+      return;
+    }
 
+    setLoading(true);
 
-    paystack.newTransaction({
-      key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
-      email: createdUser.email,
-      amount: selectedPackage.price * 100,
-      currency: "NGN",
-      metadata: {
-        custom_fields: [
-          { display_name: "User ID", variable_name: "user_id", value: createdUser.uid },
-          { display_name: "Package", variable_name: "package", value: selectedPackage.id },
-        ],
-      },
-       
-      onSuccess: async (transaction: any) => {
-        try {
-          toast.loading("Confirming payment...");
+    try {
+      const PaystackPop = (await import("@paystack/inline-js")).default;
+      const paystack = new PaystackPop();
 
+      paystack.newTransaction({
+        key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
+        email: email,
+        amount: selectedPackage.price * 100,
+        currency: "NGN",
+        metadata: {
+          custom_fields: [
+            { display_name: "User ID", variable_name: "user_id", value: userId },
+            { display_name: "Package", variable_name: "package", value: selectedPackage.id },
+          ],
+        },
          
-          const res = await fetch("/api/verify-payment", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              reference: transaction.reference,
-              userId: createdUser.uid,
-              packageId: selectedPackage.id,
-            }),
-          });
+        onSuccess: async (transaction: any) => {
+          try {
+            toast.loading("Confirming payment...");
 
-          const data = await res.json();
+            // ✅ VERIFY PAYMENT WITH YOUR API
+            const response = await fetch(`${API_BASE_URL}/payments/verify`, {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                reference: transaction.reference,
+                userId: userId,
+                packageId: selectedPackage.id,
+                credits: selectedPackage.credits,
+                bonusCredits: selectedPackage.bonus,
+                amount: selectedPackage.price,
+              }),
+            });
 
-          if (!res.ok) {
-            throw new Error(data.error || "Verification failed");
-          }
+            const data = await response.json();
 
-          toast.success(`Welcome! ${data.creditsAdded} credits added to your account! 🎉`);
-          window.location.href = "/dashboard";
+            if (!response.ok) {
+              throw new Error(data.message || "Verification failed");
+            }
 
-        } catch (error: any) {
-          console.error("Credit update error:", error);
-          toast.error(
-            error.message ||
-            "Payment successful but credits failed to update. Please contact support with your payment reference: " +
-            transaction.reference
+            // Store auth token if API returns it
+            if (data.token) {
+              localStorage.setItem('auth_token', data.token);
+            }
+
+            toast.success(`Welcome! ${data.creditsAdded || (selectedPackage.credits + selectedPackage.bonus)} credits added to your account! 🎉`);
             
-          );
+            // Small delay for better UX
+            setTimeout(() => {
+              window.location.href = "/dashboard";
+            }, 1000);
+
+          } catch (error: any) {
+            console.error("Credit update error:", error);
+            toast.error(
+              error.message ||
+              "Payment successful but credits failed to update. Please contact support with reference: " +
+              transaction.reference
+            );
+            setLoading(false);
+          }
+        },
+
+        onCancel: () => {
           setLoading(false);
-        }
-      },
+          toast.error("Transaction cancelled.");
+        },
+      });
 
-      onCancel: () => {
-        setLoading(false);
-        toast.error("Transaction cancelled.");
-      },
-    });
+    } catch (error) {
+      console.error("Payment error:", error);
+      toast.error("Error initializing payment. Please try again.");
+      setLoading(false);
+    }
+  };
 
-  } catch (error) {
-    console.error("Payment error:", error);
-    toast.error("Error initializing payment. Please try again.");
-    setLoading(false);
-  }
-};
+  const handleFreePlan = async () => {
+    try {
+      // ✅ LOGIN AFTER FREE PLAN SELECTION
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-  const handleFreePlan = () => {
-    router.push("/dashboard");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      // Store auth token
+      if (data.token) {
+        localStorage.setItem('auth_token', data.token);
+      }
+
+      router.push("/dashboard");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      toast.error("Failed to log in. Please try logging in manually.");
+      router.push("/login");
+    }
   };
 
   return (
@@ -624,83 +636,49 @@ const handlePurchaseCredits = async () => {
           </div>
         )}
 
-        {/* STEP 3: EMAIL VERIFICATION */}
-        {step === 'verify' && (
-          <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl p-8 border border-slate-100 animate-in fade-in slide-in-from-right-4">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Mail className="text-blue-600" size={40} />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-2">Verify Your Email</h2>
-              <p className="text-slate-500 text-sm">
-                We've sent a verification link to <strong className="text-slate-900">{email}</strong>
-              </p>
-            </div>
+       {/* STEP 3: OTP VERIFICATION */}
+{step === 'verify' && (
+  <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl p-8 border border-slate-100 animate-in fade-in slide-in-from-right-4">
+    <div className="text-center mb-8">
+      <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <Shield className="text-emerald-600" size={40} />
+      </div>
+      <h2 className="text-2xl font-bold text-slate-900 mb-2">Enter Verification Code</h2>
+      <p className="text-slate-500 text-sm">
+        We've sent a 6-digit code to <strong className="text-slate-900">{email}</strong>
+      </p>
+    </div>
 
-            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 mb-6">
-              <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
-                <AlertCircle size={20} />
-                Please Check Your Email
-              </h3>
-              <ol className="space-y-2 text-sm text-blue-800">
-                <li className="flex gap-2">
-                  <span className="font-bold">1.</span>
-                  <span>Open your email inbox (check spam folder if needed)</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold">2.</span>
-                  <span>Click the "Verify Email" button in the email</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold">3.</span>
-                  <span>Come back here and click "I've Verified My Email"</span>
-                </li>
-              </ol>
-            </div>
+    <div className="space-y-6">
+      <div>
+        <input 
+          type="text"
+          maxLength={6}
+          placeholder="0 0 0 0 0 0"
+          value={otp}
+          onChange={(e) => setOtp(e.target.value)}
+          className="w-full text-center text-3xl font-bold tracking-[1rem] py-4 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-50 outline-none transition"
+        />
+      </div>
 
-            <div className="space-y-3">
-              <button
-                onClick={handleCheckVerification}
-                disabled={loading}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="animate-spin" size={20} />
-                    Checking...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle size={20} />
-                    I've Verified My Email
-                  </>
-                )}
-              </button>
+      <button
+        onClick={handleVerifyOTP}
+        disabled={loading || otp.length < 4}
+        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"
+      >
+        {loading ? <Loader2 className="animate-spin" /> : "Verify & Continue"}
+      </button>
 
-              <button
-                onClick={handleResendVerification}
-                disabled={resendingEmail}
-                className="w-full bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-medium py-3 rounded-xl transition flex items-center justify-center gap-2"
-              >
-                {resendingEmail ? (
-                  <>
-                    <Loader2 className="animate-spin" size={18} />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Mail size={18} />
-                    Resend Verification Email
-                  </>
-                )}
-              </button>
-            </div>
-
-            <p className="text-xs text-center text-slate-500 mt-6">
-              Didn't receive the email? Check your spam folder or click resend
-            </p>
-          </div>
-        )}
+      <button
+        onClick={handleResendVerification}
+        disabled={resendingEmail}
+        className="w-full text-emerald-600 font-medium py-2 hover:underline flex items-center justify-center gap-2"
+      >
+        {resendingEmail ? <Loader2 className="animate-spin" size={16} /> : "Didn't get a code? Resend OTP"}
+      </button>
+    </div>
+  </div>
+)}
 
        {/* STEP 4: CREDIT PACKAGE SELECTION */}
 {step === 'plan' && (

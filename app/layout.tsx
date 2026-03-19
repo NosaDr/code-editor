@@ -4,7 +4,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Parach - JAMB CBT Practice",
+  title: "Sure Prep- JAMB CBT Practice",
   description: "Master CBT with detailed solutions and analytics.",
 };
 

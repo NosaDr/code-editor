@@ -1,11 +1,11 @@
 "use client";
 import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/app/lib/firebase";
 import { useRouter } from "next/navigation";
 import { Loader2, LockIcon } from "lucide-react";
 import { toast } from "sonner";
 
+// Get base URL from env
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || "")
   .split(",")
@@ -22,16 +22,42 @@ export default function AdminLogin() {
     setLoading(true);
 
     try {
-      // 1. Authenticate
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      // 1. Authenticate with custom backend
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-      // 2. Authorization Check
-      if (ADMIN_EMAILS.includes(user.email!)) {
+      const data = await response.json();
+
+     // Inside handleLogin after const data = await response.json();
+
+if (!response.ok) {
+  throw new Error(data.message || "Invalid credentials");
+}
+
+// ✅ IMPORTANT: Check if your API returns 'token' or 'accessToken'
+const token = data.token || data.accessToken; 
+
+if (token) {
+  localStorage.setItem("auth_token", token);
+  toast.success("Admin access granted.");
+  router.push("/admin/dashboard");
+} else {
+  toast.error("Auth failed: No token received from server");
+}
+
+      // 2. Authorization Check (Keep your existing email-based security)
+      const userEmail = data.user?.email?.toLowerCase();
+      
+      if (userEmail && ADMIN_EMAILS.includes(userEmail)) {
+       
+        localStorage.setItem("auth_token", data.accessToken);
+        toast.success("Admin access granted.");
         router.push("/admin/dashboard");
       } else {
-        toast.error("Access Denied: This account is not an Admin.");
-        await auth.signOut();
+        toast.error("Access Denied: This account is not authorized as an Admin.");
       }
     } catch (error: any) {
       toast.error("Admin Login Failed: " + error.message);
@@ -58,7 +84,7 @@ export default function AdminLogin() {
               type="email" 
               required
               className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-emerald-500 outline-none transition"
-              placeholder="admin@parach.ng"
+              placeholder="admin@Sure Prep.ng"
               value={email} onChange={e => setEmail(e.target.value)}
             />
           </div>

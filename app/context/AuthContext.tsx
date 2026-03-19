@@ -1,105 +1,103 @@
 "use client";
-import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '@/app/lib/firebase';
-import { UserData } from '@/app/type';
-import { firebaseTimestampToMillis } from '@/app/lib/dateUtils';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { authService } from '@/app/lib/api/services/authService';
+import { User } from '@/app/type'; 
+import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
   user: User | null;
-  userData: UserData | null;
   loading: boolean;
-  refreshUserData: () => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (data: any) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ 
-  user: null, 
-  userData: null, 
-  loading: true,
-  refreshUserData: async () => {} 
-});
-
-const buildUserData = (uid: string, email: string | null, displayName: string | null, rawData: any): UserData => ({
-  uid,
-  email,
-  displayName,
-  examCategory: rawData.examCategory || 'senior',
-  subscriptionStatus: rawData.subscriptionStatus || 'free',
-  subscriptionExpiry: firebaseTimestampToMillis(rawData.subscriptionExpiry) || undefined,
-  credits: rawData.credits || 0,
-  totalCreditsEarned: rawData.totalCreditsEarned || 0,
-  ...(rawData.specialization && { specialization: rawData.specialization }),
-});
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Use a ref so refreshUserData always has access to the latest user
-  const userRef = useRef<User | null>(null);
-
-  const refreshUserData = useCallback(async () => {
-    const currentUser = userRef.current;
-    if (!currentUser) return;
-    
-    try {
-      const docSnap = await getDoc(doc(db, "users", currentUser.uid));
-      if (docSnap.exists()) {
-        setUserData(buildUserData(
-          currentUser.uid,
-          currentUser.email,
-          currentUser.displayName,
-          docSnap.data()
-        ));
-      }
-    } catch (error) {
-      console.error("Error refreshing user data:", error);
-    }
-  }, []); // No dependencies needed — uses ref
+  const router = useRouter();
 
   useEffect(() => {
-    // No dependency array issue — onAuthStateChanged handles its own lifecycle
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      userRef.current = currentUser; // Keep ref in sync
-      setUser(currentUser);
-      
-      if (currentUser) {
-        const docSnap = await getDoc(doc(db, "users", currentUser.uid));
-        
-        if (docSnap.exists()) {
-          setUserData(buildUserData(
-            currentUser.uid,
-            currentUser.email,
-            currentUser.displayName,
-            docSnap.data()
-          ));
-        } else {
-          setUserData({
-            uid: currentUser.uid,
-            email: currentUser.email,
-            displayName: currentUser.displayName,
-            examCategory: 'senior',
-            subscriptionStatus: 'free',
-            credits: 0,
-            totalCreditsEarned: 0,
-          });
+    const initAuth = async () => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        try {
+          // Verify token and get fresh user data from /auth/me
+          const currentUser = await authService.getCurrentUser();
+          setUser(currentUser);
+        } catch (error) {
+          console.error('Session expired or invalid:', error);
+          localStorage.removeItem('auth_token');
+          setUser(null);
         }
-      } else {
-        setUserData(null);
       }
       setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
-  }, []); // ← Empty array: only runs once on mount, no overwrite risk
+    initAuth();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    try {
+      const response = await authService.login({ email, password });
+      // Ensure token is stored for the initAuth check on refresh
+      if (response.token) {
+        localStorage.setItem('auth_token', response.token);
+      }
+      setUser(response.user);
+    } catch (error) {
+      throw error; // Let the login page handle the error message
+    }
+  };
+
+  const register = async (data: any) => {
+    try {
+      const response = await authService.register(data);
+      if (response.token) {
+        localStorage.setItem('auth_token', response.token);
+      }
+      setUser(response.user);
+    } catch (error) {
+      throw error;
+    }
+  };
+
+const logout = async () => {
+  try {
+    await authService.logout();
+  } catch (err) {
+    console.error("Logout error", err);
+  } finally {
+    // This is the most important part:
+    localStorage.removeItem('auth_token'); 
+    setUser(null);
+    router.push('/login');
+  }
+};
+
+  const refreshUser = async () => {
+    try {
+      const currentUser = await authService.getCurrentUser();
+      setUser(currentUser);
+    } catch (error) {
+      console.error("Could not refresh user stats:", error);
+    }
+  };
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, refreshUserData }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
